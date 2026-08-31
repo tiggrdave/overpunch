@@ -56,23 +56,39 @@ def encode_overpunch(digits: str, negative: bool) -> str:
 def decode_display(raw: bytes, pic: Picture, encoding: str = "cp037",
                    sign_position: SignPosition = SignPosition.TRAILING,
                    sign_separate: bool = False) -> Decimal:
-    """Correct DISPLAY numeric read: honours the sign AND the implied decimal."""
+    """Correct DISPLAY numeric read: honours the sign AND the implied decimal.
+
+    The overpunch is recovered whether or not the copybook declares the field
+    signed, because the zone nibble carries the sign while the LOW nibble still
+    carries a digit. Skipping that recovery for a `PIC 9` field silently drops
+    the last digit and divides the value by ten - which is exactly what this
+    function used to do, on the one column in the demo file that is declared
+    unsigned and signed in practice.
+
+    The sign itself is only applied when it was declared. A field whose bytes
+    disagree with its PIC is a finding (UNDECLARED_SIGN), not something to
+    quietly reinterpret.
+    """
     text = decode_text(raw, encoding).strip()
     sign = 1
-    if pic.signed:
-        if sign_separate:
-            if sign_position is SignPosition.LEADING:
-                sign = -1 if text[:1] == "-" else 1
-                text = text[1:]
-            else:
-                sign = -1 if text[-1:] == "-" else 1
-                text = text[:-1]
-        elif sign_position is SignPosition.LEADING:
-            head, s = split_overpunch(text[0] + text[1:][::-1][:0] or text[0])
-            sign = s
-            text = head + text[1:]
+
+    if pic.signed and sign_separate:
+        if sign_position is SignPosition.LEADING:
+            sign = -1 if text[:1] == "-" else 1
+            text = text[1:]
         else:
-            text, sign = split_overpunch(text)
+            sign = -1 if text[-1:] == "-" else 1
+            text = text[:-1]
+    elif sign_position is SignPosition.LEADING and not sign_separate:
+        head, observed = split_overpunch(text[:1])
+        text = head + text[1:]
+        if pic.signed:
+            sign = observed
+    else:
+        text, observed = split_overpunch(text)
+        if pic.signed:
+            sign = observed
+
     digits = "".join(c for c in text if c.isdigit()) or "0"
     value = Decimal(digits) * sign
     if pic.scale:

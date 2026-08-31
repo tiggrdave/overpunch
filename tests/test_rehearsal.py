@@ -204,3 +204,38 @@ def test_redefines_shares_bytes_instead_of_adding_them():
     assert layout.record_length() == 12
     assert layout.find("A-1").offset == 0
     assert layout.find("B").offset == 10
+
+
+# --- an overpunch on a field the copybook calls unsigned ---------------------
+
+def test_an_unsigned_field_with_an_overpunch_keeps_all_its_digits(tmp_path):
+    """`PIC 9(06)V99` holding `000011136}`.
+
+    The zone nibble carries the sign; the LOW nibble still carries a digit.
+    Dropping the whole byte loses that digit and divides the value by ten. This
+    is not hypothetical - the decoder did exactly that until a second,
+    independent implementation disagreed with it.
+    """
+    from overpunch.decode import decode_display
+    from overpunch.copybook import parse_picture
+    pic = parse_picture("9(06)V99")
+    raw = encode_overpunch("00111360", negative=True).encode("cp037")
+    assert decode_display(raw, pic) == Decimal("1113.60")
+
+
+def test_a_signed_field_with_the_same_bytes_also_keeps_its_digits(tmp_path):
+    from overpunch.decode import decode_display
+    from overpunch.copybook import parse_picture
+    pic = parse_picture("S9(06)V99")
+    raw = encode_overpunch("00111360", negative=True).encode("cp037")
+    assert decode_display(raw, pic) == Decimal("-1113.60")
+
+
+def test_the_two_differ_only_in_the_sign_never_in_the_magnitude(tmp_path):
+    """The declared sign changes direction. It must not change how much."""
+    from overpunch.decode import decode_display
+    from overpunch.copybook import parse_picture
+    raw = encode_overpunch("00111360", negative=True).encode("cp037")
+    unsigned = decode_display(raw, parse_picture("9(06)V99"))
+    signed = decode_display(raw, parse_picture("S9(06)V99"))
+    assert abs(signed) == unsigned
