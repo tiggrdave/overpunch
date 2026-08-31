@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+demo/CHGDTL.dat
+out.parquet
+*.egg-info/

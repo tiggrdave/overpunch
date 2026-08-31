@@ -1,0 +1,23 @@
+.PHONY: demo test scan explain clean
+
+VENV := .venv
+PY   := $(VENV)/bin/python
+
+$(VENV):
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install -q -e ".[dev,parquet]"
+
+demo: $(VENV)
+	$(PY) demo/make_synthetic.py --records 100000
+	@echo
+	-$(PY) -m overpunch.cli scan demo/CHGDTL.cpy demo/CHGDTL.dat
+	@echo
+	$(PY) -m overpunch.cli explain demo/CHGDTL.cpy demo/CHGDTL.dat \
+		--hypotheses demo/replay-fixture.json --limit 20000
+
+test: $(VENV)
+	$(PY) -m pytest -q
+
+clean:
+	rm -rf $(VENV) demo/CHGDTL.dat demo/CHGDTL.cpy out.parquet .pytest_cache
+	find . -name __pycache__ -type d -exec rm -rf {} +

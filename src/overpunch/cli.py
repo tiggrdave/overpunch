@@ -1,0 +1,186 @@
+"""Command line entry point."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from .copybook import parse_file
+from .decode import decode_field
+from .explain import (NemotronError, adjudicate, build_prompt,
+                      parse_hypotheses, profile, propose)
+from .findings import evaluate
+from .layout import Layout
+from .probe import LayoutMismatch, iter_records, scan
+
+
+def _layout_table(layout: Layout) -> str:
+    rows = [f"{'OFF':>5}  {'LEN':>4}  {'NAME':<26} {'PIC':<14} USAGE"]
+    rows.append("-" * 72)
+    for f in layout.elementary_fields():
+        rows.append(f"{f.offset:>5}  {f.total_size():>4}  {f.name:<26} "
+                    f"{f.pic.raw:<14} {f.usage.value}")
+    rows.append("-" * 72)
+    rows.append(f"record length: {layout.record_length()} bytes")
+    return "\n".join(rows)
+
+
+def cmd_layout(args) -> int:
+    layout = parse_file(args.copybook)
+    print(_layout_table(layout))
+    return 0
+
+
+def cmd_scan(args) -> int:
+    layout = parse_file(args.copybook)
+    size = Path(args.data).stat().st_size
+    rlen = layout.record_length()
+    print(f"copybook : {args.copybook}")
+    print(f"data     : {args.data}  ({size:,} bytes)")
+    print(f"record   : {rlen} bytes  ->  {size / rlen:,.2f} records")
+    if size % rlen:
+        print()
+        print(f"[CRITICAL] LAYOUT_MISMATCH")
+        print(f"    the file is not a whole multiple of the copybook's record length; "
+              f"{size % rlen} bytes are left over")
+        print(f"    evidence: file_bytes={size:,}, record_length={rlen}, "
+              f"remainder={size % rlen}")
+        print("    this copybook does not describe this file. Nothing below would "
+              "be trustworthy, so the scan stops here.")
+        return 2
+
+    stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit)
+    findings = evaluate(layout, stats)
+    examined = next(iter(stats.values())).examined if stats else 0
+    print(f"encoding : {args.encoding}")
+    print(f"examined : {examined:,} records")
+    print()
+    if not findings:
+        print("no findings.")
+        return 0
+    counts = {}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+        print(f)
+        print()
+    print("  ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
+    return 1 if counts.get("critical") else 0
+
+
+def cmd_decode(args) -> int:
+    layout = parse_file(args.copybook)
+    fields = [f for f in layout.elementary_fields() if not f.is_filler]
+    columns: dict[str, list] = {f.name: [] for f in fields}
+    n = 0
+    for rec in iter_records(args.data, layout.record_length()):
+        if args.limit is not None and n >= args.limit:
+            break
+        for f in fields:
+            raw = rec[f.offset:f.offset + f.total_size()]
+            columns[f.name].append(decode_field(raw, f, args.encoding))
+        n += 1
+
+    if args.out.endswith(".parquet"):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        table = pa.table({k: [str(v) if hasattr(v, "as_tuple") else v for v in col]
+                          for k, col in columns.items()})
+        pq.write_table(table, args.out)
+    else:
+        import csv
+        with open(args.out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(columns.keys())
+            for i in range(n):
+                w.writerow([columns[k][i] for k in columns])
+    print(f"wrote {n:,} records to {args.out}")
+    return 0
+
+
+def cmd_explain(args) -> int:
+    layout = parse_file(args.copybook)
+    stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit)
+    prof = profile(layout, stats)
+    copybook_text = Path(args.copybook).read_text(encoding="utf-8", errors="replace")
+
+    if args.save_prompt:
+        Path(args.save_prompt).write_text(build_prompt(copybook_text, prof))
+        print(f"prompt written to {args.save_prompt}")
+
+    if args.hypotheses:
+        hyps = parse_hypotheses(Path(args.hypotheses).read_text())
+        source = f"replayed from {args.hypotheses}"
+    else:
+        try:
+            hyps = propose(copybook_text, prof, model=args.model)
+        except NemotronError as exc:
+            print(f"[proposal step skipped] {exc}", file=sys.stderr)
+            return 3
+        source = f"proposed by {args.model}"
+
+    verdicts = adjudicate(hyps, layout, stats, args.data, args.encoding)
+    print(f"{len(hyps)} hypotheses {source}, each adjudicated against the bytes:")
+    print()
+    for v in verdicts:
+        print(v)
+        if v.hypothesis.meaning:
+            print(f"     reading   : {v.hypothesis.meaning}  (advisory, not tested)")
+        print()
+    tally = {}
+    for v in verdicts:
+        tally[v.verdict] = tally.get(v.verdict, 0) + 1
+    print("  ".join(f"{k.lower()}: {n}" for k, n in sorted(tally.items())))
+    print()
+    print("Only CONFIRMED hypotheses are findings. A REFUTED one is the model "
+          "being wrong and the file saying so.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="overpunch",
+        description="Decode mainframe fixed-width extracts from their COBOL "
+                    "copybooks, and find the traps that silently corrupt them.")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("layout", help="show the record layout the copybook describes")
+    p.add_argument("copybook")
+    p.set_defaults(func=cmd_layout)
+
+    p = sub.add_parser("scan", help="measure a data file against its copybook")
+    p.add_argument("copybook")
+    p.add_argument("data")
+    p.add_argument("--encoding", default="cp037")
+    p.add_argument("--limit", type=int, default=None)
+    p.set_defaults(func=cmd_scan)
+
+    p = sub.add_parser("decode", help="decode to Parquet or CSV")
+    p.add_argument("copybook")
+    p.add_argument("data")
+    p.add_argument("-o", "--out", default="out.parquet")
+    p.add_argument("--encoding", default="cp037")
+    p.add_argument("--limit", type=int, default=None)
+    p.set_defaults(func=cmd_decode)
+
+    p = sub.add_parser("explain",
+                       help="let Nemotron propose hypotheses, then adjudicate them")
+    p.add_argument("copybook")
+    p.add_argument("data")
+    p.add_argument("--encoding", default="cp037")
+    p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--model", default="nvidia/llama-3.3-nemotron-super-49b-v1.5")
+    p.add_argument("--hypotheses", help="replay a saved model reply instead of calling out")
+    p.add_argument("--save-prompt", help="write the prompt that would be sent")
+    p.set_defaults(func=cmd_explain)
+
+    args = ap.parse_args(argv)
+    try:
+        return args.func(args)
+    except LayoutMismatch as exc:
+        print(f"[CRITICAL] {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
