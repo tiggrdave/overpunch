@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .copybook import parse_file
 from .decode import decode_field
-from .explain import (NemotronError, adjudicate, build_prompt,
+from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
                       parse_hypotheses, profile, propose)
 from .findings import evaluate
 from .layout import Layout
@@ -113,11 +113,21 @@ def cmd_explain(args) -> int:
         source = f"replayed from {args.hypotheses}"
     else:
         try:
-            hyps = propose(copybook_text, prof, model=args.model)
+            hyps = propose(copybook_text, prof, model=args.model,
+                           max_tokens=args.max_tokens,
+                           samples=args.samples)
         except NemotronError as exc:
             print(f"[proposal step skipped] {exc}", file=sys.stderr)
             return 3
         source = f"proposed by {args.model}"
+
+    if args.save_hypotheses:
+        import json as _json
+        Path(args.save_hypotheses).write_text(_json.dumps(
+            {"_model": args.model if not args.hypotheses else "replayed",
+             "_note": "captured model proposals, replayable with --hypotheses",
+             "hypotheses": [h.__dict__ for h in hyps]}, indent=2) + "\n")
+        print(f"proposals saved to {args.save_hypotheses}")
 
     verdicts = adjudicate(hyps, layout, stats, args.data, args.encoding)
     print(f"{len(hyps)} hypotheses {source}, each adjudicated against the bytes:")
@@ -169,9 +179,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("data")
     p.add_argument("--encoding", default="cp037")
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--model", default="nvidia/llama-3.3-nemotron-super-49b-v1.5")
+    p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--hypotheses", help="replay a saved model reply instead of calling out")
     p.add_argument("--save-prompt", help="write the prompt that would be sent")
+    p.add_argument("--samples", type=int, default=1,
+                   help="ask more than once and take the union; model "
+                        "recall varies between identical runs")
+    p.add_argument("--save-hypotheses",
+                   help="save the proposals so they can be replayed without a key")
+    p.add_argument("--max-tokens", type=int, default=12000,
+                   help="reasoning models need room; a truncated reply "
+                        "parses as no reply at all")
     p.set_defaults(func=cmd_explain)
 
     args = ap.parse_args(argv)

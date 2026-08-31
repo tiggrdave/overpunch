@@ -23,10 +23,11 @@ from datetime import date
 
 from .decode import decode_text, split_overpunch
 from .layout import Field, Layout, Usage
+from . import predicates as pred
 from .probe import FieldStats, iter_records
 
 NIM_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
-DEFAULT_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 # The closed vocabulary. A proposal outside this set is not testable and will be
 # reported as an opinion.
@@ -56,11 +57,12 @@ class Hypothesis:
 @dataclass
 class Adjudication:
     hypothesis: Hypothesis
-    verdict: str               # CONFIRMED | REFUTED | UNTESTABLE
+    verdict: str               # CONFIRMED | INERT | REFUTED | UNTESTABLE
     evidence: dict = dc_field(default_factory=dict)
 
     def __str__(self) -> str:
-        mark = {"CONFIRMED": "+", "REFUTED": "-", "UNTESTABLE": "?"}[self.verdict]
+        mark = {"CONFIRMED": "+", "REFUTED": "-",
+                "INERT": "~", "UNTESTABLE": "?"}[self.verdict]
         head = f" {mark} {self.verdict:<11} {self.hypothesis.kind:<20} {self.hypothesis.field}"
         lines = [head]
         if self.hypothesis.rationale:
@@ -87,6 +89,21 @@ def profile(layout: Layout, stats: dict[str, FieldStats]) -> dict:
         st = stats.get(f.name)
         if st is None:
             continue
+        observed = {
+            "records": st.examined,
+            "blank": st.blank,
+            "all_zero": st.all_zero,
+            "undecodable": st.undecodable,
+        }
+        if f.pic is not None and f.pic.is_numeric:
+            observed["non_digit_final_byte"] = st.nondigit_last_byte
+            observed["widest_significant_digits"] = st.max_significant_digits
+            if f.usage is Usage.COMP3:
+                observed["invalid_packed"] = st.invalid_packed
+        else:
+            # distinct values are only counted for character fields; reporting a
+            # count for a numeric field would be a false zero, not a missing one
+            observed["distinct_values"] = len(st.distinct)
         fields.append({
             "name": f.name,
             "pic": f.pic.raw,
@@ -94,16 +111,7 @@ def profile(layout: Layout, stats: dict[str, FieldStats]) -> dict:
             "offset": f.offset,
             "bytes": f.total_size(),
             "conditions": {k: v for k, v in f.conditions.items()},
-            "observed": {
-                "records": st.examined,
-                "blank": st.blank,
-                "all_zero": st.all_zero,
-                "non_digit_final_byte": st.nondigit_last_byte,
-                "widest_significant_digits": st.max_significant_digits,
-                "distinct_values": len(st.distinct),
-                "undecodable": st.undecodable,
-                "invalid_packed": st.invalid_packed,
-            },
+            "observed": observed,
         })
     return {"record_bytes": layout.record_length(), "fields": fields}
 
@@ -144,7 +152,37 @@ class NemotronError(RuntimeError):
 
 
 def propose(copybook_text: str, prof: dict, model: str = DEFAULT_MODEL,
-            api_key: str | None = None, timeout: int = 120) -> list[Hypothesis]:
+            api_key: str | None = None, timeout: int = 300,
+            max_tokens: int = 12000, temperature: float = 0.0,
+            samples: int = 1) -> list[Hypothesis]:
+    """Ask the model for hypotheses, optionally more than once.
+
+    Recall varies between runs. Two calls with identical inputs produced eight
+    proposals and five, and the five did NOT include the trailing sign on the
+    adjustment column - the single most expensive defect in the file. Sampling
+    more than once and taking the union raises recall; it does not guarantee it.
+
+    This is why `scan` exists and does not consult a model at all. The
+    deterministic pass is the floor. `explain` is what the model adds on top,
+    and it is allowed to add nothing.
+    """
+    seen: dict[tuple[str, str], Hypothesis] = {}
+    errors = []
+    for _ in range(max(1, samples)):
+        try:
+            for h in _propose_once(copybook_text, prof, model, api_key, timeout,
+                                   max_tokens, temperature):
+                seen.setdefault((h.field, h.kind), h)
+        except NemotronError as exc:
+            errors.append(str(exc))
+    if not seen and errors:
+        raise NemotronError("; ".join(dict.fromkeys(errors)))
+    return list(seen.values())
+
+
+def _propose_once(copybook_text: str, prof: dict, model: str,
+                  api_key: str | None, timeout: int, max_tokens: int,
+                  temperature: float) -> list[Hypothesis]:
     key = api_key or os.environ.get("NVIDIA_API_KEY")
     if not key:
         raise NemotronError(
@@ -156,8 +194,8 @@ def propose(copybook_text: str, prof: dict, model: str = DEFAULT_MODEL,
         "model": model,
         "messages": [{"role": "user",
                       "content": build_prompt(copybook_text, prof)}],
-        "temperature": 0.2,
-        "max_tokens": 2048,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
     }).encode()
 
     req = urllib.request.Request(
@@ -178,15 +216,60 @@ def propose(copybook_text: str, prof: dict, model: str = DEFAULT_MODEL,
     return parse_hypotheses(text)
 
 
+def _json_candidates(text: str):
+    """Yield every balanced {...} span in the text, longest and latest first.
+
+    A reasoning model narrates before it answers, and the narration contains
+    braces. Taking the first one, or everything between the first and the last,
+    both fail. Scanning for balanced spans and preferring the last one that
+    actually parses is the only version that survives real replies.
+    """
+    spans = []
+    for start, ch in enumerate(text):
+        if ch != "{":
+            continue
+        depth, in_str, esc = 0, False, False
+        for i in range(start, len(text)):
+            c = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append(text[start:i + 1])
+                    break
+    spans.sort(key=lambda sp: (("hypotheses" in sp), len(sp)))
+    return list(reversed(spans))
+
+
 def parse_hypotheses(text: str) -> list[Hypothesis]:
-    """Pull the JSON out of a model reply, tolerating fences and stray prose."""
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < 0:
-        raise NemotronError("model reply contained no JSON object")
-    try:
-        data = json.loads(text[start:end + 1])
-    except json.JSONDecodeError as exc:
-        raise NemotronError(f"model reply was not valid JSON: {exc}") from exc
+    """Pull the JSON out of a model reply, tolerating fences, prose and reasoning."""
+    data = None
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and "hypotheses" in parsed:
+            data = parsed
+            break
+    if data is None:
+        if "{" not in text:
+            raise NemotronError("model reply contained no JSON object")
+        raise NemotronError(
+            "model reply contained no parseable object with a 'hypotheses' key "
+            "(a truncated reply looks exactly like this - try --max-tokens)")
+
     out = []
     for item in data.get("hypotheses", []):
         if not isinstance(item, dict) or "field" not in item or "kind" not in item:
@@ -236,59 +319,62 @@ def _yes(cond: bool, ev: dict) -> tuple[str, dict]:
 
 
 def _t_trailing_sign(fld, st, layout, path, enc):
-    n = st.overpunch_negative
-    return _yes(bool(fld.pic.signed and n),
-                {"negative_records": f"{n:,}", "of": f"{st.examined:,}",
-                 "declared": fld.pic.raw})
+    ev = {"negative_records": f"{st.overpunch_negative:,}",
+          "of": f"{st.examined:,}", "declared": fld.pic.raw}
+    if pred.sign_is_load_bearing(fld, st):
+        return "CONFIRMED", ev
+    if pred.sign_present_but_inert(fld, st):
+        # The model read the bytes correctly. The sign IS in the last byte. It
+        # just changes no value in this file, so calling it wrong would be as
+        # misleading as calling it a finding.
+        ev["note"] = "sign is present but every record is positive"
+        return "INERT", ev
+    return "REFUTED", ev
 
 
 def _t_undeclared_sign(fld, st, layout, path, enc):
     n = st.overpunch_negative + st.overpunch_positive
-    return _yes(bool(not fld.pic.signed and fld.pic.is_numeric and n),
+    return _yes(pred.undeclared_sign(fld, st),
                 {"signed_records": f"{n:,}", "declared": fld.pic.raw})
 
 
 def _t_implied_decimal(fld, st, layout, path, enc):
-    return _yes(bool(fld.pic.is_numeric and fld.pic.scale),
+    return _yes(pred.implied_decimal(fld, st),
                 {"scale": fld.pic.scale, "declared": fld.pic.raw})
 
 
 def _t_width_underfill(fld, st, layout, path, enc):
-    return _yes(bool(fld.pic.is_numeric and st.max_significant_digits and
-                     st.max_significant_digits <= fld.pic.int_digits - 1),
+    return _yes(pred.width_underfill(fld, st),
                 {"declared_digits": fld.pic.int_digits,
+                 "scale": fld.pic.scale,
                  "widest_observed": st.max_significant_digits})
 
 
 def _t_packed_not_packed(fld, st, layout, path, enc):
-    return _yes(bool(st.invalid_packed), {"invalid_records": f"{st.invalid_packed:,}",
+    return _yes(pred.invalid_packed(fld, st), {"invalid_records": f"{st.invalid_packed:,}",
                                           "usage": fld.usage.value})
 
 
 def _t_never_populated(fld, st, layout, path, enc):
-    return _yes(st.examined > 0 and (st.blank == st.examined or
-                                     st.all_zero == st.examined),
+    return _yes(pred.never_populated(fld, st),
                 {"blank": f"{st.blank:,}", "zero": f"{st.all_zero:,}",
                  "of": f"{st.examined:,}"})
 
 
 def _t_populated_filler(fld, st, layout, path, enc):
-    return _yes(fld.is_filler and st.blank < st.examined,
+    return _yes(pred.populated_filler(fld, st),
                 {"non_blank": f"{st.examined - st.blank:,}", "of": f"{st.examined:,}"})
 
 
 def _t_uncovered(fld, st, layout, path, enc):
-    claimed = {v for vals in fld.conditions.values() for v in vals}
-    seen = {v.strip() for v in st.distinct if v.strip()}
-    extra = seen - claimed
-    return _yes(bool(fld.conditions and extra),
+    extra = pred.uncovered_values(fld, st)
+    return _yes(bool(extra),
                 {"unclaimed_values": ", ".join(sorted(extra)[:6]) or "none",
                  "declared_conditions": len(fld.conditions)})
 
 
 def _t_ambiguous(fld, st, layout, path, enc):
-    c = Counter(v for vals in fld.conditions.values() for v in vals)
-    dupes = [v for v, n in c.items() if n > 1]
+    dupes = pred.duplicated_condition_values(fld)
     return _yes(bool(dupes), {"duplicated_values": ", ".join(dupes) or "none"})
 
 

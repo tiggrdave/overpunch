@@ -11,6 +11,7 @@ from collections import Counter
 from decimal import Decimal
 
 from .layout import Field, Layout, Usage
+from . import predicates as pred
 from .probe import Finding, FieldStats
 
 
@@ -35,8 +36,8 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
     pic = fld.pic
     signed_bytes = st.overpunch_negative + st.overpunch_positive
 
-    if pic.is_numeric and fld.usage is Usage.DISPLAY and signed_bytes:
-        if pic.signed and st.overpunch_negative:
+    if pred.signed_bytes_present(fld, st):
+        if pred.sign_is_load_bearing(fld, st):
             delta = st.sum_abs - st.sum_correct
             out.append(Finding(
                 code="TRAILING_SIGN", severity="critical", field=fld.name,
@@ -49,7 +50,7 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                 impact=(f"correct total {st.sum_correct:,.2f}; "
                         f"sign ignored {st.sum_abs:,.2f} "
                         f"(overstated by {delta:,.2f})")))
-        elif pic.signed:
+        elif pred.sign_present_but_inert(fld, st):
             out.append(Finding(
                 code="SIGN_PRESENT_ALL_POSITIVE", severity="info", field=fld.name,
                 claim=("the final byte is a sign, not a digit, but every record in "
@@ -71,7 +72,7 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                         f"honouring the sign {st.sum_forced_signed:,.2f} "
                         f"(difference {st.sum_correct - st.sum_forced_signed:,.2f})")))
 
-    if pic.is_numeric and pic.scale and fld.usage is Usage.DISPLAY:
+    if pred.implied_decimal(fld, st):
         out.append(Finding(
             code="IMPLIED_DECIMAL", severity="warn", field=fld.name,
             claim=(f"{pic.scale} implied decimal place(s); the bytes contain no "
@@ -81,8 +82,7 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
             impact=(f"correct total {st.sum_correct:,.2f}; "
                     f"digits-only read {st.sum_naive:,.0f}")))
 
-    if pic.is_numeric and pic.scale == 0 and st.max_significant_digits and \
-            st.max_significant_digits <= pic.int_digits - 1:
+    if pred.width_underfill(fld, st):
         out.append(Finding(
             code="WIDTH_UNDERFILL", severity="warn", field=fld.name,
             claim=(f"declared {pic.int_digits} integer digits but no record uses "
@@ -92,7 +92,7 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                       "widest_observed": st.max_significant_digits},
             records=st.examined))
 
-    if fld.is_filler and st.examined and st.blank < st.examined:
+    if pred.populated_filler(fld, st):
         sample = st.distinct.most_common(3)
         out.append(Finding(
             code="POPULATED_FILLER", severity="warn", field="FILLER "
@@ -104,14 +104,14 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                       "examples": ", ".join(repr(v) for v, _ in sample)},
             records=st.examined))
 
-    if st.examined and (st.blank == st.examined or st.all_zero == st.examined):
+    if pred.never_populated(fld, st):
         out.append(Finding(
             code="NEVER_POPULATED", severity="info", field=fld.name,
             claim="field is blank or zero in every record examined",
             evidence={"blank": f"{st.blank:,}", "zero": f"{st.all_zero:,}"},
             records=st.examined))
 
-    if st.invalid_packed:
+    if pred.invalid_packed(fld, st):
         out.append(Finding(
             code="INVALID_PACKED", severity="critical", field=fld.name,
             claim=("declared COMP-3 but the nibbles are not valid packed decimal; "

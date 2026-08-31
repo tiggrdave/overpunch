@@ -1,0 +1,84 @@
+{
+  "_model": "nvidia/nemotron-3-super-120b-a12b",
+  "_note": "captured model proposals, replayable with --hypotheses",
+  "hypotheses": [
+    {
+      "field": "BIL-METER-ID",
+      "kind": "TRAILING_SIGN",
+      "rationale": "non_digit_final_byte is 20000 (all records) while widest_significant_digits is only 6, indicating the final byte holds a sign overpunch rather than a digit.",
+      "meaning": "Meter ID includes a sign overpunch in its last byte."
+    },
+    {
+      "field": "BIL-CHARGE-AMT",
+      "kind": "TRAILING_SIGN",
+      "rationale": "non_digit_final_byte is 20000 (all records) and widest_significant_digits is 6 (<10), showing the final byte is not a digit.",
+      "meaning": "Charge amount stores its sign in the final byte."
+    },
+    {
+      "field": "BIL-ADJUSTMENT-AMT",
+      "kind": "TRAILING_SIGN",
+      "rationale": "non_digit_final_byte is 20000 (all records) and widest_significant_digits is 6 (<10), indicating a non\u2011digit final byte.",
+      "meaning": "Adjustment amount stores its sign in the final byte."
+    },
+    {
+      "field": "BIL-BALANCE-AMT",
+      "kind": "UNDECLARED_SIGN",
+      "rationale": "Field is declared unsigned PIC 9(08)V99 yet 1,436 records have a non\u2011digit final byte, implying an unexpected sign.",
+      "meaning": "Some balance amounts carry a sign in the last byte despite being defined as unsigned."
+    },
+    {
+      "field": "BIL-RATE-CLASS",
+      "kind": "AMBIGUOUS_CONDITION",
+      "rationale": "Two 88\u2011level names (RATE-RESIDENTIAL and RATE-RELIEF) both map to the same value 'R'.",
+      "meaning": "The value 'R' is ambiguous\u2014it could indicate residential or relief rate class."
+    },
+    {
+      "field": "FILLER",
+      "kind": "POPULATED_FILLER",
+      "rationale": "Distinct values count is 8,069 out of 20,000 records, showing the filler contains varied non\u2011blank data.",
+      "meaning": "The filler field actually holds data rather than being unused."
+    },
+    {
+      "field": "BIL-METER-ID",
+      "kind": "WIDTH_UNDERFILL",
+      "rationale": "Widest significant digits observed is 6 while the PIC specifies 7 digits, meaning the full width is never used.",
+      "meaning": "Meter ID never utilizes its declared full width; leading positions are consistently blank or zero."
+    },
+    {
+      "field": "BIL-CHARGE-AMT",
+      "kind": "WIDTH_UNDERFILL",
+      "rationale": "Widest significant digits observed is 6 (<10), indicating the declared width is not fully utilized.",
+      "meaning": "Charge amount field does not use its full declared width."
+    },
+    {
+      "field": "BIL-ADJUSTMENT-AMT",
+      "kind": "WIDTH_UNDERFILL",
+      "rationale": "Widest significant digits observed is 6 (<10), showing the field is not fully filled.",
+      "meaning": "Adjustment amount field does not use its full declared width."
+    },
+    {
+      "field": "BIL-BALANCE-AMT",
+      "kind": "WIDTH_UNDERFILL",
+      "rationale": "Widest significant digits observed is 7 (<10), indicating the declared width is never fully used.",
+      "meaning": "Balance amount field does not utilize its full declared width."
+    },
+    {
+      "field": "BIL-CHARGE-AMT",
+      "kind": "IMPLIED_DECIMAL",
+      "rationale": "PIC S9(08)V99 specifies two implied decimal places with no actual decimal point stored.",
+      "meaning": "Charge amount value is scaled by 100; decimal point must be inferred."
+    },
+    {
+      "field": "BIL-ADJUSTMENT-AMT",
+      "kind": "IMPLIED_DECIMAL",
+      "rationale": "PIC S9(08)V99 indicates two implied decimal places without a stored point.",
+      "meaning": "Adjustment amount is stored as integer cents; decimal point is implied."
+    },
+    {
+      "field": "BIL-BALANCE-AMT",
+      "kind": "IMPLIED_DECIMAL",
+      "rationale": "PIC 9(08)V99 denotes two implied decimal places, no explicit decimal point in the field.",
+      "meaning": "Balance amount is stored as integer cents; decimal point is implied."
+    }
+  ]
+}

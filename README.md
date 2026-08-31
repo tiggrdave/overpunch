@@ -72,10 +72,15 @@ test against the bytes. Anything else comes back `UNTESTABLE` and is printed as
 an opinion, clearly labelled, never as a finding. A field name it invents comes
 back `REFUTED — no such field in the copybook`.
 
+A fourth verdict, `INERT`, exists because "wrong" and "right but harmless here"
+are different things. When the model says a field carries its sign in the last
+byte and it *does*, but no record in the file is negative, calling that REFUTED
+would tell you it misread the bytes. It didn't.
+
 **A hallucination cannot become a finding here.** It can only become a refuted
-hypothesis. From `make demo`, which replays `demo/replay-fixture.json` — a
-hand-written set of proposals, not a captured model reply, so that the
-adjudication step can be demonstrated and tested with no network and no key:
+hypothesis. From a real run against `nvidia/nemotron-3-super-120b-a12b`, saved
+to `demo/nemotron-reply.json` so `make demo` can replay it with no key and no
+network call:
 
 ```
  + CONFIRMED   TRAILING_SIGN        BIL-ADJUSTMENT-AMT
@@ -90,9 +95,19 @@ adjudication step can be demonstrated and tested with no network and no key:
      measured  : reason=outside the testable vocabulary
 ```
 
-Those verdicts are real: the file was measured for every one of them. What is
-stand-in is the *proposals*, until a captured Nemotron reply is committed
-alongside the fixture.
+### The model is not the floor
+
+Recall varies between runs. Two calls with identical inputs returned eight
+proposals and five — and the five did **not** include the trailing sign on the
+adjustment column, the single most expensive defect in the file.
+
+That is why `scan` consults no model at all. The deterministic pass is the floor
+and it found that defect every time. `explain` is what the model adds on top,
+and it is allowed to add nothing.
+
+`--samples N` asks more than once and takes the union, which raises recall
+without guaranteeing it. The committed reply is a 3-sample union: 13 proposals,
+8 confirmed, 2 inert, 3 refuted.
 
 The model's *reading* of a field — "a credit or rebill applied against a
 previously billed charge" — is kept, because it is useful, and marked

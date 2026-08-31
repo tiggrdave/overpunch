@@ -13,7 +13,7 @@ demo: $(VENV)
 	-$(PY) -m overpunch.cli scan demo/UTLBILL.cpy demo/UTLBILL.dat
 	@echo
 	$(PY) -m overpunch.cli explain demo/UTLBILL.cpy demo/UTLBILL.dat \
-		--hypotheses demo/replay-fixture.json --limit 20000
+		--hypotheses demo/nemotron-reply.json --limit 20000
 
 test: $(VENV)
 	$(PY) -m pytest -q
