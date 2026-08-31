@@ -73,7 +73,9 @@ an opinion, clearly labelled, never as a finding. A field name it invents comes
 back `REFUTED — no such field in the copybook`.
 
 **A hallucination cannot become a finding here.** It can only become a refuted
-hypothesis. From the demo run:
+hypothesis. From `make demo`, which replays `demo/replay-fixture.json` — a
+hand-written set of proposals, not a captured model reply, so that the
+adjudication step can be demonstrated and tested with no network and no key:
 
 ```
  + CONFIRMED   TRAILING_SIGN        CHG-ADJUSTMENT-AMT
@@ -86,6 +88,10 @@ hypothesis. From the demo run:
  ? UNTESTABLE  FIELD_CONTAINS_PII   CHG-PACKED-TOTAL
      measured  : reason=outside the testable vocabulary
 ```
+
+Those verdicts are real: the file was measured for every one of them. What is
+stand-in is the *proposals*, until a captured Nemotron reply is committed
+alongside the fixture.
 
 The model's *reading* of a field — "a correction applied against a previously
 posted charge" — is kept, because it is useful, and marked `advisory, not tested`.
