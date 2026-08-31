@@ -10,14 +10,14 @@ $(VENV):
 demo: $(VENV)
 	$(PY) demo/make_synthetic.py --records 100000
 	@echo
-	-$(PY) -m overpunch.cli scan demo/CHGDTL.cpy demo/CHGDTL.dat
+	-$(PY) -m overpunch.cli scan demo/UTLBILL.cpy demo/UTLBILL.dat
 	@echo
-	$(PY) -m overpunch.cli explain demo/CHGDTL.cpy demo/CHGDTL.dat \
+	$(PY) -m overpunch.cli explain demo/UTLBILL.cpy demo/UTLBILL.dat \
 		--hypotheses demo/replay-fixture.json --limit 20000
 
 test: $(VENV)
 	$(PY) -m pytest -q
 
 clean:
-	rm -rf $(VENV) demo/CHGDTL.dat demo/CHGDTL.cpy out.parquet .pytest_cache
+	rm -rf $(VENV) demo/UTLBILL.dat demo/UTLBILL.cpy out.parquet .pytest_cache
 	find . -name __pycache__ -type d -exec rm -rf {} +

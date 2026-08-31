@@ -7,14 +7,14 @@ Plenty of libraries will read a copybook. This one assumes the copybook is
 **wrong about the file**, and goes looking for the places where it is.
 
 ```
-[CRITICAL] TRAILING_SIGN        CHG-ADJUSTMENT-AMT
+[CRITICAL] TRAILING_SIGN        BIL-ADJUSTMENT-AMT
     the last byte carries the sign, not a digit; dropping it inverts the negative records
-    evidence: negative=96,429, positive=3,571, share_negative=96.4%
-    impact: correct total -185,716,951.56; sign ignored 200,006,656.22
-            (overstated by 385,723,607.78)
+    evidence: negative=71,294, positive=28,706, share_negative=71.3%
+    impact: correct total -85,576,733.06; sign ignored 200,006,656.22
+            (overstated by 285,583,389.28)
 ```
 
-One column. One byte per record. A $385 million swing, and nothing anywhere
+One column. One byte per record. A $285 million swing, and nothing anywhere
 raises an error — the load succeeds, the dashboard renders, the sign is just
 gone.
 
@@ -40,10 +40,10 @@ mainframe extract is a plausible wrong number**, not a crash.
 ## What it does
 
 ```bash
-overpunch layout  CHGDTL.cpy                 # what the copybook says the record is
-overpunch scan    CHGDTL.cpy CHGDTL.dat      # measure the file against it
-overpunch decode  CHGDTL.cpy CHGDTL.dat -o out.parquet
-overpunch explain CHGDTL.cpy CHGDTL.dat      # Nemotron proposes, the bytes dispose
+overpunch layout  UTLBILL.cpy                 # what the copybook says the record is
+overpunch scan    UTLBILL.cpy UTLBILL.dat      # measure the file against it
+overpunch decode  UTLBILL.cpy UTLBILL.dat -o out.parquet
+overpunch explain UTLBILL.cpy UTLBILL.dat      # Nemotron proposes, the bytes dispose
 ```
 
 `scan` reports nothing it has not measured. Every finding carries the number of
@@ -78,14 +78,15 @@ hand-written set of proposals, not a captured model reply, so that the
 adjudication step can be demonstrated and tested with no network and no key:
 
 ```
- + CONFIRMED   TRAILING_SIGN        CHG-ADJUSTMENT-AMT
-     measured  : negative_records=19,248, of=20,000, declared=S9(08)V99
- - REFUTED     TRAILING_SIGN        CHG-BENEFIT-AMT
+ + CONFIRMED   TRAILING_SIGN        BIL-ADJUSTMENT-AMT
+     measured  : negative_records=14,265, of=20,000, declared=S9(08)V99
+ - REFUTED     TRAILING_SIGN        BIL-CHARGE-AMT
      model said: declared S9, so negatives should be present
-     measured  : negative_records=0, of=20,000
- - REFUTED     TRAILING_SIGN        CHG-SETTLEMENT-BALANCE
+     measured  : negative_records=0, of=20,000, declared=S9(08)V99
+ - REFUTED     TRAILING_SIGN        BIL-SETTLEMENT-BALANCE
+     model said: the running balance field should be signed
      measured  : reason=no such field in the copybook
- ? UNTESTABLE  FIELD_CONTAINS_PII   CHG-PACKED-TOTAL
+ ? UNTESTABLE  FIELD_CONTAINS_PII   BIL-PACKED-TOTAL
      measured  : reason=outside the testable vocabulary
 ```
 
@@ -93,8 +94,9 @@ Those verdicts are real: the file was measured for every one of them. What is
 stand-in is the *proposals*, until a captured Nemotron reply is committed
 alongside the fixture.
 
-The model's *reading* of a field — "a correction applied against a previously
-posted charge" — is kept, because it is useful, and marked `advisory, not tested`.
+The model's *reading* of a field — "a credit or rebill applied against a
+previously billed charge" — is kept, because it is useful, and marked
+`advisory, not tested`.
 
 ### What leaves the machine
 
@@ -121,7 +123,7 @@ For the `explain` step, a free key from [build.nvidia.com](https://build.nvidia.
 
 ```bash
 export NVIDIA_API_KEY=nvapi-...
-overpunch explain demo/CHGDTL.cpy demo/CHGDTL.dat
+overpunch explain demo/UTLBILL.cpy demo/UTLBILL.dat
 ```
 
 Everything except `explain` runs fully offline, with no dependencies outside the
@@ -130,11 +132,20 @@ standard library. `decode -o out.parquet` wants `pyarrow`.
 ## The demo data is synthetic, on purpose
 
 `demo/make_synthetic.py` generates both the copybook and a 100,000-record EBCDIC
-file with **known traps planted in it**. No real copybook, record, or dataset
-from any organisation appears in this repository.
+file with **known traps planted in it**.
 
 Synthetic is not a compromise here, it is the requirement: because the traps are
-planted, the detector can be *required* to find them.
+planted, the detector can be *required* to find them. A fixture you merely
+*found* can only ever show that the tool ran.
+
+### Provenance
+
+The trap catalogue is drawn from real experience of mainframe extracts —
+these are the failures that actually happen, not a list of things that could
+theoretically go wrong. **The demo schema, its domain, its field names and every
+byte of its data are invented for this repository.** No copybook, record layout,
+or dataset belonging to any organisation appears here, and none informed the
+demo's structure.
 
 ## Tests are rehearsals
 
