@@ -5,3 +5,8 @@ __pycache__/
 demo/UTLBILL.dat
 out.parquet
 *.egg-info/
+
+# never commit credentials
+.env
+*.api-key
+nvapi-*
