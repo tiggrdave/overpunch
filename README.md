@@ -129,7 +129,7 @@ the network entirely.
 
 ```bash
 git clone <this repo> && cd overpunch
-make demo          # generates a synthetic extract and analyses it, ~15 seconds
+make demo          # generates a synthetic extract and analyses it, under a minute
 make test
 ```
 
