@@ -308,6 +308,39 @@ It found four defects on first contact:
 
 The last one is now refused outright, naming the discarded text.
 
+## What the tests actually check
+
+199 tests, in five kinds:
+
+| kind | what it holds | example |
+|---|---|---|
+| **rehearsals** | every rule must fire on a planted fault *and* stay quiet without it | re-plant either sign bug and exactly the right tests fail |
+| **corpus** | each sample produces the findings its manifest declared beforehand | `samples/MANIFEST.json` |
+| **properties** | invariants over every value, page and copybook | encode→decode round-trips across four code pages and every width |
+| **metamorphic** | doubling a file doubles every total; reordering changes none | catches state leaking between records |
+| **differential** | Python and JavaScript held to identical answers | 6 files, 74 fields, 39 findings, 4 DDL renderings |
+
+Plus boundaries — empty files, a file one byte short, single records, all-`0x00`,
+all-`0xFF` — and structural invariants asserted over every copybook in the
+repository: no two fields overlap unless one redefines the other, no field
+reaches past the record, no finding names a field the layout does not contain.
+
+**Writing them found four more defects**: a reader that loaded whole files into
+memory (20 MB resident for a 21 MB file, fatal on the gigabyte extracts this
+tool is for), packed and binary values that were validated but never decoded,
+`IMPLIED_DECIMAL` exempting every non-`DISPLAY` field, and identifiers being
+mangled rather than transliterated — `GEBÜRTSDATUM` became `geb_rtsdatum`.
+
+### Still not covered, and worth knowing
+
+- **Mutation testing at scale.** Faults are planted by hand, one at a time.
+- **A genuinely independent oracle.** Both implementations are mine. Comparing
+  against Cobrix or JRecord would be independent in a way this is not.
+- **Breadth of real copybooks.** One real source (AWS CardDemo), not ten.
+- **Systematic parser fuzzing.** Malformed COBOL is tested by example only.
+- **True `OCCURS DEPENDING ON`.** The maximum is reserved; variable-length
+  records are not unpacked.
+
 ## Tests are rehearsals
 
 > A check that has never failed proves it EXECUTES, not that it CATCHES.

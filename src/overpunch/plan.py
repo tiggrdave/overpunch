@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field as dc_field
 
 from .layout import Field, Layout, Usage
@@ -80,7 +81,30 @@ DEFAULT_POLICIES = {
 }
 
 
+# Where a language has a settled ASCII spelling, use it. Folding these to a bare
+# vowel is wrong: Ue is how German writes Ü when it cannot write Ü.
+_TRANSLITERATE = {
+    "Ä": "AE", "Ö": "OE", "Ü": "UE", "ß": "SS",
+    "Å": "AA", "Æ": "AE", "Ø": "OE", "Þ": "TH", "Ð": "DH",
+    "Œ": "OE", "İ": "I", "ı": "i", "Ł": "L",
+}
+
+
 def normalise(name: str, style: str = "snake_case") -> str:
+    """Turn a COBOL name into a legal identifier without losing characters.
+
+    Field names are in the local language - KUNDEN-NR, MONTANT-RÉGLÉ,
+    ÖZDEMIR-KODU. Stripping anything outside a-z left GEBÜRTSDATUM as
+    'geb_rtsdatum' and ÖZDEMIR-KODU as 'zdemir_kodu': a mangled name, and a new
+    source of collisions between names that differ only in their accents.
+
+    Digraph languages get their conventional spelling; everything else is
+    accent-folded, which is what a Latin-alphabet language expects.
+    """
+    for ch, repl in _TRANSLITERATE.items():
+        name = name.replace(ch, repl).replace(ch.lower(), repl.lower())
+    name = unicodedata.normalize("NFKD", name)
+    name = "".join(c for c in name if not unicodedata.combining(c))
     ident = re.sub(r"[^0-9a-zA-Z]+", "_", name).strip("_").lower()
     if style != "snake_case":
         ident = ident.upper()

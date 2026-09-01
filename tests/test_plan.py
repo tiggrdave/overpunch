@@ -214,3 +214,29 @@ def test_the_loader_names_the_table_and_its_columns(resolved):
     sh = loader_script(resolved)
     assert "torture_record" in sh and "tr_region" in sh
     assert "overpunch decode" in sh
+
+
+# --- names in languages other than English ----------------------------------
+
+def test_accented_names_are_transliterated_not_mangled():
+    """COBOL keywords are English; field names are not.
+
+    Stripping anything outside a-z turned GEBÜRTSDATUM into 'geb_rtsdatum' and
+    dropped the leading character of ÖZDEMIR-KODU entirely - a mangled name, and
+    a new source of collisions between names differing only in their accents.
+    """
+    assert normalise("GEBÜRTSDATUM") == "gebuertsdatum"
+    assert normalise("ÖZDEMIR-KODU") == "oezdemir_kodu"
+    assert normalise("MONTANT-RÉGLÉ") == "montant_regle"
+    assert normalise("WEIß-BETRAG") == "weiss_betrag"
+    assert normalise("FORSIKRING-BELØB") == "forsikring_beloeb"
+
+
+def test_transliteration_keeps_names_distinct():
+    """Two German names differing only in an umlaut must not collapse together."""
+    assert normalise("SCHULE") != normalise("SCHÜLE")
+
+
+def test_plain_ascii_names_are_untouched():
+    assert normalise("DALYTRAN-MERCHANT-ID") == "dalytran_merchant_id"
+    assert normalise("TR-E-CODE") == "tr_e_code"
