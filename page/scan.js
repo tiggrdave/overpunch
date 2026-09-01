@@ -26,6 +26,17 @@ function splitSign(t){
 }
 function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
 
+/* The sign is in the ZONE NIBBLE of the last byte - 0xC_ positive, 0xD_
+   negative - which every EBCDIC page shares. The character it decodes to does
+   not: 0xD0 is '}' in cp037, 'ü' in cp273, 'ğ' in cp1026. Reading the sign from
+   text works on US data and silently loses German negatives. */
+function zoneSign(byte){
+  var zone = byte >> 4, digit = byte & 15;
+  if((zone === 0x0C || zone === 0x0D) && digit <= 9)
+    return {s: zone === 0x0D ? -1 : 1, d: String(digit)};
+  return null;
+}
+
 function fieldLen(f){ return COBOL.size(f) * f.occurs; }
 
 function observe(st, f, bytes, off){
@@ -50,18 +61,23 @@ function observe(st, f, bytes, off){
   }
   if(f.usage !== "DISPLAY") return;
 
+  var zoned = zoneSign(bytes[off + f.offset + len - 1]);
   var last = t.length ? t.charAt(t.length-1) : "";
-  if(last && !/[0-9]/.test(last)){
+  if(zoned){
+    st.nonDigitLast++;
+    if(zoned.s < 0) st.negative++; else st.positive++;
+  } else if(last && !/[0-9]/.test(last)){
     st.nonDigitLast++;
     var sp = splitSign(t);
     if(sp.s < 0) st.negative++; else st.positive++;
   }
-  var d = digitsOf(splitSign(t).d);
+  var sp2 = zoned ? {d: t.slice(0,-1) + zoned.d, s: zoned.s} : splitSign(t);
+  var d = digitsOf(sp2.d);
   if(!t.trim()) st.blank++;
   if(d && /^0+$/.test(d)) st.allZero++;
   st.widest = Math.max(st.widest, d.replace(/^0+/,"").length);
 
-  var sp2 = splitSign(t), v = parseInt(digitsOf(sp2.d),10);
+  var v = parseInt(digitsOf(sp2.d),10);
   var div = Math.pow(10, f.pic.scale||0);
   var signed = (f.pic.signed ? sp2.s : 1) * v / div;
   st.sumCorrect += signed;

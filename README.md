@@ -355,6 +355,42 @@ exactly that, and two more asserting the bad read is rejected.
 Both fixtures under `tests/fixtures/` are real captured replies, so the tests
 run without a network or a key.
 
+## EBCDIC is a family, and the sign is not in the text
+
+COBOL's reserved words are English everywhere - `PICTURE`, `OCCURS`, `REDEFINES`
+are the same in Frankfurt as in Ohio. Field names and comments are not: a German
+copybook is full of `KUNDEN-NR` and `GEBURTSDATUM`. Neither of those troubles a
+parser.
+
+The code page does. EBCDIC is a family of national variants - **cp273** German,
+**cp500** international, **cp1026** Turkish, **cp870** Central European - and
+they disagree about exactly the bytes that matter:
+
+| byte | cp037 | cp273 | cp1026 |
+|---|---|---|---|
+| `0xD0` | `}` | `ü` | `ğ` |
+| `0xC0` | `{` | `ä` | `ç` |
+
+`0xD0` is the trailing overpunch for **negative zero**. An earlier version of
+this decoder read the sign from the *decoded character*, looking for `}`. On
+German data it therefore did not recognise the sign at all: the digit was
+dropped and the record silently turned positive. Measured on a 200-record file,
+that moved the reported total by **122,228**, with no warning of any kind.
+
+The sign lives in the **zone nibble of the byte** - `0xC_` positive, `0xD_`
+negative - and every EBCDIC page agrees on that. It is read from the byte now,
+so the money is identical whichever page you decode the text with:
+
+```
+cp273   negative=54  correct total 1,416,732.81
+cp037   negative=54  correct total 1,416,732.81
+cp1026  negative=54  correct total 1,416,732.81
+```
+
+Only `-0` was affected, because it is the one digit whose sign byte differs
+between pages. Nine negatives in ten decoded correctly, which is precisely why
+nobody would have noticed.
+
 ## Two implementations, held to the same answers
 
 The page analyses files **in your browser**. That is not a convenience: the data

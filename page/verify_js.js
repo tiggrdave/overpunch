@@ -26,7 +26,7 @@ if (!fs.existsSync(refPath)) {
   process.exit(2);
 }
 const ref = JSON.parse(fs.readFileSync(refPath, "utf8"));
-SCAN.setTable(ref.cp037);
+
 
 let failures = 0, comparedFields = 0, comparedFindings = 0;
 
@@ -49,6 +49,8 @@ for (const c of ref.cases) {
     }
   }
 
+  const page = c.encoding || "cp037";
+  SCAN.setTable((ref.pages && ref.pages[page]) || ref.cp037);
   const bytes = Buffer.from(c.data, "base64");
   const res = SCAN.scan(layout, bytes);
   const got = SCAN.findings(layout, res);

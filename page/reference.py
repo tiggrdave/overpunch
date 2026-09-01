@@ -29,6 +29,10 @@ LIMIT = 300
 def main() -> None:
     out = {"cp037": "".join(bytes([i]).decode("cp037") for i in range(256)),
            "cases": []}
+    # a German case, so the comparison actually exercises a non-US code page.
+    # Without one it agrees on everything and discriminates nothing.
+    out["pages"] = {p: "".join(bytes([i]).decode(p) for i in range(256))
+                    for p in ("cp037", "cp273", "cp500", "cp1026")}
     for cpy, dat in PAIRS:
         cp, dp = ROOT / cpy, ROOT / dat
         if not (cp.exists() and dp.exists()):
@@ -71,6 +75,30 @@ def main() -> None:
         out["ddl_cases"].append({"name": f"{path.name} pk={keys or 'none'}",
                                  "plan": plan, "keys": keys,
                                  "ddl": postgres_ddl(plan)})
+
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "tests"))
+    from test_codepages import GERMAN_COPYBOOK, german_file      # noqa: E402
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        gpath, _, _ = german_file(Path(td), "cp273", records=120)
+        glayout = parse_file(str(ROOT / "demo" / "UTLBILL.cpy"))  # placeholder
+        from overpunch.copybook import parse as parse_src
+        glayout = parse_src(GERMAN_COPYBOOK, source_name="KUNDE.cpy")
+        graw = Path(gpath).read_bytes()
+        gstats = scan(gpath, glayout, encoding="cp273")
+        out["cases"].append({
+            "name": "KUNDE.cpy (cp273)",
+            "copybook": GERMAN_COPYBOOK,
+            "data": base64.b64encode(graw).decode(),
+            "encoding": "cp273",
+            "record_len": glayout.record_length(),
+            "fields": [{"name": f.name, "offset": f.offset, "len": f.total_size(),
+                        "usage": f.usage.value} for f in glayout.elementary_fields()],
+            "findings": [{"code": f.code, "severity": f.severity, "field": f.field,
+                          "impact": f.impact}
+                         for f in evaluate(glayout, gstats)],
+        })
 
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))

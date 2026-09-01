@@ -12,7 +12,7 @@ from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
 from .decode import (DecodeError, decode_display, decode_display_naive,
-                     decode_packed, decode_text, split_overpunch)
+                     decode_packed, decode_text, split_overpunch, zone_sign)
 from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
@@ -123,8 +123,17 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
     if fld.usage is Usage.COMP:
         return
 
+    # the sign is in the byte's zone nibble, which every EBCDIC page shares -
+    # not in the character it decodes to, which they do not agree on
+    zoned = zone_sign(raw)
     last = text[-1:] if text else ""
-    if last and not last.isdigit():
+    if zoned is not None:
+        st.nondigit_last_byte += 1
+        if zoned[0] < 0:
+            st.overpunch_negative += 1
+        else:
+            st.overpunch_positive += 1
+    elif last and not last.isdigit():
         st.nondigit_last_byte += 1
         if last in "+-":
             st.ascii_signed += 1
@@ -139,7 +148,10 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
             else:
                 st.overpunch_positive += 1
 
-    digits, _ = split_overpunch(text)
+    if zoned is not None:
+        digits = text[:-1] + zoned[1]
+    else:
+        digits, _ = split_overpunch(text)
     digits = "".join(c for c in digits if c.isdigit())
     if not text.strip():
         st.blank += 1
@@ -155,7 +167,11 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
         st.sum_naive += decode_display_naive(raw, pic, encoding)
         if not pic.signed:
             text_ = decode_text(raw, encoding).strip()
-            digits_, sign_ = split_overpunch(text_)
+            z = zone_sign(raw)
+            if z is not None:
+                digits_, sign_ = text_[:-1] + z[1], z[0]
+            else:
+                digits_, sign_ = split_overpunch(text_)
             digits_ = "".join(c for c in digits_ if c.isdigit()) or "0"
             forced = Decimal(digits_) * sign_
             st.sum_forced_signed += forced.scaleb(-pic.scale) if pic.scale else forced

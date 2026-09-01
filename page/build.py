@@ -140,6 +140,21 @@ def sample_case() -> dict:
                       f"(Apache-2.0)"}
 
 
+def german_sample() -> dict:
+    """A German record in cp273, because EBCDIC is a family and Berlin is not Ohio."""
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "tests"))
+    from test_codepages import GERMAN_COPYBOOK, german_file       # noqa: E402
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        path, _, _ = german_file(Path(td), "cp273", records=80)
+        raw = Path(path).read_bytes()
+    return {"copybook": GERMAN_COPYBOOK, "copybook_name": "KUNDE.cpy",
+            "data": base64.b64encode(raw).decode(), "data_name": "KUNDE.dat",
+            "encoding": "cp273",
+            "credit": "80 German customer records in cp273"}
+
+
 def build_payload() -> dict:
     cpy, dat = DEMO / "UTLBILL.cpy", DEMO / "UTLBILL.dat"
     if not dat.exists():
@@ -193,6 +208,7 @@ def build_payload() -> dict:
                                           ("cp273", "cp273"), ("cp1026", "cp1026"),
                                           ("cp1140", "cp1140"), ("latin1", "latin-1"))},
         "sample": sample_case(),
+        "sample_de": german_sample(),
         "vision": vision_case(),
         "model": MODEL,
         "findings": [{"code": f.code, "severity": f.severity, "field": f.field,

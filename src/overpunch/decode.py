@@ -47,6 +47,41 @@ def split_overpunch(text: str) -> tuple[str, int]:
     return text, 1
 
 
+def zone_sign(raw: bytes) -> tuple[int, str] | None:
+    """Recover the sign and final digit from the ZONE NIBBLE of the last byte.
+
+    Every EBCDIC code page agrees that 0xC_ is positive, 0xD_ is negative and
+    0xF_ is unsigned, with the digit in the low nibble. The CHARACTER those
+    bytes decode to does not agree at all: 0xD0 is '}' in cp037, 'ü' in cp273
+    (German) and 'ğ' in cp1026 (Turkish).
+
+    Reading the sign from decoded text therefore works only on US code pages.
+    On German data the -0 overpunch is not recognised, the digit is dropped and
+    the record silently turns positive - measured on a 200-record file as a
+    122,228 difference in the total, reported with no warning whatsoever.
+
+    Returns None when the last byte is not an EBCDIC signed-numeric zone, so
+    ASCII data with a trailing '+'/'-' falls through to the character path.
+    """
+    if not raw:
+        return None
+    zone, digit = raw[-1] >> 4, raw[-1] & 0x0F
+    if zone in (0x0C, 0x0D) and digit <= 9:
+        return (-1 if zone == 0x0D else 1), str(digit)
+    return None
+
+
+def encode_overpunch_bytes(digits: str, negative: bool, encoding: str = "cp037") -> bytes:
+    """Build a signed DISPLAY field the way a mainframe writes one: by byte.
+
+    The leading digits are the code page's own digit bytes; the final byte
+    carries the sign in its zone nibble.
+    """
+    head = digits[:-1].encode(encoding)
+    zone = 0xD0 if negative else 0xC0
+    return head + bytes([zone | int(digits[-1])])
+
+
 def encode_overpunch(digits: str, negative: bool) -> str:
     """Inverse of split_overpunch, for building fixtures."""
     table = _OVERPUNCH_NEG if negative else _OVERPUNCH_POS
@@ -85,7 +120,14 @@ def decode_display(raw: bytes, pic: Picture, encoding: str = "cp037",
         if pic.signed:
             sign = observed
     else:
-        text, observed = split_overpunch(text)
+        # the byte's zone nibble is the same in every EBCDIC page; the character
+        # it decodes to is not, so read the sign from the byte where possible
+        zoned = zone_sign(raw)
+        if zoned is not None:
+            observed, last_digit = zoned
+            text = text[:-1] + last_digit
+        else:
+            text, observed = split_overpunch(text)
         if pic.signed:
             sign = observed
 

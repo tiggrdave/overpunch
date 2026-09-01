@@ -27,15 +27,23 @@ document.getElementById("in-dat").onchange=function(e){
     setName("dat",f.name,f.size); msg(""); };
   r.readAsArrayBuffer(f);
 };
-document.getElementById("run-sample").onclick=function(){
-  cpyText=D.sample.copybook; cpyName=D.sample.copybook_name;
-  var bin=atob(D.sample.data); datBytes=new Uint8Array(bin.length);
+function loadSample(sample){
+  cpyText=sample.copybook; cpyName=sample.copybook_name;
+  var bin=atob(sample.data); datBytes=new Uint8Array(bin.length);
   for(var i=0;i<bin.length;i++) datBytes[i]=bin.charCodeAt(i);
-  datName=D.sample.data_name;
+  datName=sample.data_name;
   setName("cpy",cpyName,cpyText.length); setName("dat",datName,datBytes.length);
-  document.getElementById("in-enc").value="cp037";
-  msg("Loaded "+D.sample.credit); analyse();
+  document.getElementById("in-enc").value=sample.encoding||"cp037";
+  msg("Loaded "+sample.credit); analyse();
+}
+document.getElementById("run-sample").onclick=function(){ loadSample(D.sample); };
+var de=document.getElementById("run-sample-de");
+if(de) de.onclick=function(){
+  loadSample(D.sample_de);
+  msg(msgText()+"  — now switch the code page to cp037 and watch the names break "+
+      "while the money stays right.");
 };
+function msgText(){ return document.getElementById("run-msg").textContent; }
 document.getElementById("run-analyze").onclick=analyse;
 
 function analyse(){
