@@ -95,11 +95,30 @@ def _rows_from_tabular(text: str) -> list[str]:
         return []
     out = []
     for raw in m.group(1).split("\\\\"):
-        cells = [c.strip() for c in raw.replace("\\n", "\n").split("&")]
+        cells = [_strip_markup(c) for c in raw.replace("\\n", "\n").split("&")]
         cells = [c for c in cells if c]
         if cells:
             out.append(" ".join(cells))
     return out
+
+
+_LATEX = re.compile(r"\\[a-zA-Z]+(?:\[[^\]]*\])?(?:\{([^{}]*)\})*")
+
+
+def _strip_markup(text: str) -> str:
+    """Remove the markup a document parser wraps around a cell.
+
+    The model returns a monospace listing as a LaTeX table, and a heading inside
+    it comes back as `\multicolumn{4}{c}{**...**}`. That parses harmlessly - the
+    line carries no level number, so it becomes a comment - but it is markup
+    leaking into something presented as a recovered copybook.
+    """
+    def unwrap(m):
+        inner = re.findall(r"\{([^{}]*)\}", m.group(0))
+        return inner[-1] if inner else ""
+    text = _LATEX.sub(unwrap, text)
+    text = text.replace("**", "").replace("\\", "")
+    return text.strip()
 
 
 def to_copybook(blocks: list[dict]) -> tuple[str, list[str]]:
@@ -112,10 +131,11 @@ def to_copybook(blocks: list[dict]) -> tuple[str, list[str]]:
         kept.append(text[:120])
         rows = _rows_from_tabular(text)
         if rows:
-            lines.extend(rows)
+            # a heading swept into the table is prose, not a statement
+            lines.extend(r if _LEVEL.match(r) else "* " + r for r in rows)
             continue
         for line in text.split("\n"):
-            line = line.strip()
+            line = _strip_markup(line)
             if not line:
                 continue
             lines.append(line if _LEVEL.match(line) else "* " + line)
