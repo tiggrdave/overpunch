@@ -154,3 +154,59 @@ def test_an_internal_redefines_still_shares_its_bytes():
     assert layout.external_redefines() == []
     assert layout.find("A-1").offset == 0
     assert layout.find("B").offset == 9
+
+
+# --- 6. more than one record in one copybook --------------------------------
+
+TWO_RECORDS = """\
+00001 01  HEADER-RECORD.
+00002     05  HDR-TYPE             PIC X(02).
+00003     05  HDR-DATE             PIC 9(08).
+00004 01  DETAIL-RECORD.
+00005     05  DTL-ID               PIC 9(06).
+00006     05  DTL-AMOUNT           PIC S9(07)V99.
+00007     05  DTL-FLAG             PIC X(01).
+"""
+
+
+def test_a_second_01_starts_a_new_record_rather_than_orphaning():
+    """An 01 is a record boundary. Treating the second as a field under the
+    first raised 'orphaned level 1' and lost everything after it - which is what
+    happened on 65 of 885 real copybooks, one of them declaring 24 records."""
+    from overpunch.copybook import parse_records
+    records = parse_records(TWO_RECORDS)
+    assert [r.root.name for r in records] == ["HEADER-RECORD", "DETAIL-RECORD"]
+    assert records[0].record_length() == 10
+    assert records[1].record_length() == 6 + 9 + 1
+
+
+def test_parse_returns_the_first_and_names_the_rest():
+    layout = parse(TWO_RECORDS)
+    assert layout.root.name == "HEADER-RECORD"
+    assert layout.other_records == ["DETAIL-RECORD"]
+
+
+def test_a_single_record_copybook_names_no_others():
+    assert parse(FRAGMENT).other_records == []
+
+
+# --- 7. a COPY member that is procedure code, not a layout ------------------
+
+PROCEDURE_CODE = """\
+00001 S3100-CONSTRUCT.
+00002     MOVE LOW-VALUES TO WORK-AREA.
+00003     IF SOME-CONDITION
+00004         PERFORM S3200-DO-IT
+00005     ELSE
+00006         GO TO S3100-EXIT.
+"""
+
+
+def test_procedure_code_is_named_as_such_not_reported_as_a_parse_failure():
+    """24 of 885 members hold executable statements. 'no 01-level record found'
+    sounds like the parser broke; it did not, there is simply nothing here to
+    decode a data file with."""
+    with pytest.raises(CopybookError) as exc:
+        parse(PROCEDURE_CODE)
+    assert "procedure-division code" in str(exc.value)
+    assert "no PICTURE clauses" in str(exc.value)

@@ -112,6 +112,7 @@ class Layout:
     root: Field
     source_name: str = "<copybook>"
     is_fragment: bool = False      # no 01 level: meant to be COPY'd into a record
+    other_records: list[str] = dc_field(default_factory=list)
 
     def record_length(self) -> int:
         return self.root.size()
@@ -128,9 +129,17 @@ class Layout:
                 if f.redefines and f.redefines_external]
 
     def _walk_offsets(self, f: Field, base: int) -> int:
+        """Lay out ONE occurrence and return where it ends.
+
+        The caller multiplies by `occurs`. Returning total_size() here instead
+        multiplied it twice for an ELEMENTARY field with OCCURS - `PIC X(40)
+        OCCURS 5` advanced the cursor 1000 bytes rather than 200. The torture
+        record only ever puts OCCURS on a group, so nothing exercised this path
+        until it met 69 copybooks that do it on a field.
+        """
         f.offset = base
         if not f.children:
-            return base + f.total_size()
+            return base + f.size()
         cursor = base
         for c in f.children:
             c.parent = f

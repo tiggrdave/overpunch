@@ -27,6 +27,13 @@ _TOKEN_RE = re.compile(r"""'[^']*'|"[^"]*"|[^\s]+""")
 # swallow whichever field comes next.
 _DIRECTIVES = {"SKIP1", "SKIP2", "SKIP3", "EJECT", "TITLE"}
 
+# A COPY member may hold executable statements rather than a record layout.
+# Saying so beats "no 01-level record found", which sounds like a parse failure.
+_VERBS = {"MOVE", "IF", "ELSE", "PERFORM", "COMPUTE", "EVALUATE", "CALL", "READ",
+          "WRITE", "REWRITE", "DELETE", "SET", "ADD", "SUBTRACT", "MULTIPLY",
+          "DIVIDE", "STRING", "UNSTRING", "INSPECT", "SEARCH", "EXEC", "GOBACK",
+          "OPEN", "CLOSE", "INITIALIZE", "ACCEPT", "DISPLAY", "PERFORM"}
+
 
 class CopybookError(ValueError):
     pass
@@ -188,17 +195,41 @@ def check_truncation(text: str) -> None:
 
 
 def parse(text: str, source_name: str = "<copybook>") -> Layout:
+    """The first record in the copybook. See `parse_records` for all of them."""
+    records = parse_records(text, source_name)
+    first = records[0]
+    first.other_records = [r.root.name for r in records[1:]]
+    return first
+
+
+def parse_records(text: str, source_name: str = "<copybook>") -> list[Layout]:
+    """Every 01-level record in the copybook.
+
+    A copybook may declare several records - 65 of 885 in the estate this was
+    tested against do, one of them 24 of them. An 01 is a record boundary, not a
+    continuation, and treating the second one as a field under the first raised
+    'orphaned level 1' and lost everything after it.
+    """
     check_truncation(text)
     fmt = detect_format(text)
+    roots: list[Field] = []
     root: Field | None = None
     stack: list[Field] = []
     last_elementary: Field | None = None
     fragment = False
+    verbs = pics = 0
 
     for stmt in _statements(text, fmt):
         tok = _tokens(stmt)
-        if not tok or not tok[0].isdigit():
+        if not tok:
             continue
+        if not tok[0].isdigit():
+            head = tok[0].upper().rstrip(".")
+            if head in _VERBS:
+                verbs += 1
+            continue
+        if any(t.upper() in ("PIC", "PICTURE") for t in tok):
+            pics += 1
         level = int(tok[0])
         rest = tok[1:]
 
@@ -255,19 +286,23 @@ def parse(text: str, source_name: str = "<copybook>") -> Layout:
                 fld.usage = _USAGE_WORDS[word]
             idx += 1
 
+        if level == 1:
+            # an 01 always begins a new record, even after a fragment
+            root = fld
+            roots.append(fld)
+            stack = [fld]
+            if fld.pic is not None:
+                last_elementary = fld
+            continue
+
         if root is None:
-            if level == 1:
-                root = fld
-                stack = [fld]
-                if fld.pic is not None:
-                    last_elementary = fld
-                continue
             # A copybook that starts below 01 is a FRAGMENT: a group of fields
             # meant to be COPY'd into a record the program declares. Every real
             # copybook in the estate this was first tested against is one of
             # these, starting at 05 or 10. Refusing them rejects the common case.
             fragment = True
             root = Field(level=0, name="<fragment>")
+            roots.append(root)
             stack = [root]
             root.children.append(fld)
             stack.append(fld)
@@ -285,14 +320,23 @@ def parse(text: str, source_name: str = "<copybook>") -> Layout:
         if fld.pic is not None:
             last_elementary = fld
 
-    if root is None:
-        raise CopybookError("no 01-level record found")
+    if not roots:
+        if verbs and not pics:
+            raise CopybookError(
+                f"this copybook holds procedure-division code, not a record "
+                f"layout ({verbs} statements, no PICTURE clauses). There is "
+                f"nothing here to decode a data file with.")
+        raise CopybookError("no record definition found: no 01 level and no "
+                            "fields to make a record from")
 
-    layout = Layout(root=root, source_name=source_name)
-    layout.is_fragment = fragment
-    layout.assign_offsets()
-    layout.validate()
-    return layout
+    out = []
+    for r in roots:
+        layout = Layout(root=r, source_name=source_name)
+        layout.is_fragment = fragment and r.level == 0
+        layout.assign_offsets()
+        layout.validate()
+        out.append(layout)
+    return out
 
 
 def parse_file(path: str) -> Layout:

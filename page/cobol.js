@@ -242,9 +242,12 @@ function parse(text){
     f.children.forEach(markExternal);
   })(root);
 
+  // lay out ONE occurrence and return where it ends; the caller multiplies.
+  // Returning size*occurs here multiplied it twice for an elementary field with
+  // OCCURS - PIC X(40) OCCURS 5 advanced 1000 bytes instead of 200.
   function walk(f, base){
     f.offset = base;
-    if(!f.children.length) return base + size(f) * f.occurs;
+    if(!f.children.length) return base + size(f);
     var cursor = base;
     f.children.forEach(function(c){
       c.parent = f;

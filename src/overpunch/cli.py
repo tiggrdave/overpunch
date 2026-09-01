@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from .copybook import parse_file
+from .copybook import parse_file, parse_records
 from .decode import decode_field
 from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
                       parse_hypotheses, profile, propose)
@@ -40,8 +40,26 @@ def _layout_table(layout: Layout) -> str:
     return "\n".join(rows)
 
 
+def _pick(records, wanted, where):
+    if wanted:
+        for r in records:
+            if r.root.name.upper() == wanted.upper():
+                return r
+        names = ", ".join(r.root.name for r in records)
+        raise SystemExit(f"{where}: no record named {wanted!r}. Available: {names}")
+    return records[0]
+
+
 def cmd_layout(args) -> int:
-    layout = parse_file(args.copybook)
+    records = parse_records(Path(args.copybook).read_text(errors="replace"),
+                            args.copybook)
+    if len(records) > 1 and not args.record:
+        print(f"{args.copybook} declares {len(records)} records:")
+        for r in records:
+            print(f"  {r.root.name:<32} {r.record_length():>7} bytes  "
+                  f"{len(r.elementary_fields()):>4} fields")
+        print("\nShowing the first. Use --record NAME for another.\n")
+    layout = _pick(records, args.record, args.copybook)
     print(_layout_table(layout))
     return 0
 
@@ -315,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("layout", help="show the record layout the copybook describes")
     p.add_argument("copybook")
+    p.add_argument("--record", help="pick one when the copybook declares several")
     p.set_defaults(func=cmd_layout)
 
     p = sub.add_parser("scan", help="measure a data file against its copybook")

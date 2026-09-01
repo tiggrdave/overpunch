@@ -104,13 +104,18 @@ def main() -> None:
     _sys.path.insert(0, str(ROOT / "tests"))
     from test_dialects import (DECIMAL_IN_VALUE, EXTERNAL_REDEFINES,  # noqa: E402
                                FIVE_DIGIT_SEQ, FRAGMENT, WITH_DIRECTIVES)
+    ELEMENTARY_OCCURS = ("000100 01  REC.\n"
+                         "000200     05  BEFORE     PIC X(02).\n"
+                         "000300     05  LINE-ITEM  PIC X(40) OCCURS 5 TIMES.\n"
+                         "000400     05  AFTER      PIC X(03).\n")
     from overpunch.copybook import parse as _parse                    # noqa: E402
     out["dialects"] = []
     for name, text in (("five-digit sequence", FIVE_DIGIT_SEQ),
                        ("listing directives", WITH_DIRECTIVES),
                        ("fragment, no 01", FRAGMENT),
                        ("decimal point in VALUE", DECIMAL_IN_VALUE),
-                       ("redefines an external record", EXTERNAL_REDEFINES)):
+                       ("redefines an external record", EXTERNAL_REDEFINES),
+                       ("OCCURS on an elementary field", ELEMENTARY_OCCURS)):
         lay = _parse(text)
         out["dialects"].append({
             "name": name, "copybook": text,

@@ -342,6 +342,30 @@ It found four defects on first contact:
 
 The last one is now refused outright, naming the discarded text.
 
+## Pointed at 885 real copybooks
+
+A production government tax system's entire copybook library. The first run
+parsed **727**. After the defects below it parses **861**, and the remaining 24
+are correctly identified as **procedure-division code** — COPY members holding
+executable statements, with no record layout in them at all.
+
+Across those 861 there are **1,270 record layouts**, because 72 copybooks
+declare more than one. Median record 96 bytes, longest 200,030 — a
+`PIC S9(03) COMP-3 OCCURS 99999 TIMES` working-storage table, which is
+199,998 + 32 and exactly right.
+
+Two more defects it found, on top of the five below:
+
+- **`OCCURS` on an elementary field advanced the cursor five times too far.**
+  `PIC X(40) OCCURS 5` moved 1,000 bytes instead of 200, because the offset walk
+  returned a size that already included `OCCURS` and the caller multiplied
+  again. Every `OCCURS` in my own torture record is on a *group*, so this path
+  had never been taken. 69 copybooks.
+- **A copybook may declare several records.** An `01` is a record boundary, not
+  a continuation; treating the second as a field under the first raised
+  "orphaned level 1" and silently lost everything after it. 65 copybooks, one of
+  them declaring 24 records.
+
 ## Pointed at twelve real copybooks, all twelve failed
 
 They came from a production government tax system. Nine returned a **zero-byte

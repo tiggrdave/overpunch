@@ -172,3 +172,33 @@ def test_a_long_line_that_keeps_its_period_is_allowed():
 
 def test_a_well_formed_copybook_passes_the_same_guard():
     parse("000100 01  REC.\n000200     05  A  PIC X(03).\n")
+
+
+# --- OCCURS on an elementary field, not just on a group ---------------------
+
+def test_occurs_on_an_elementary_field_advances_once_per_occurrence():
+    """`PIC X(40) OCCURS 5` is 200 bytes, and the next field starts 200 on.
+
+    The offset walk returned total_size() for a leaf - which already includes
+    OCCURS - and the caller multiplied again, advancing 1000 bytes. Every
+    OCCURS in the torture record is on a GROUP, so this path was never taken
+    until it met real copybooks that put OCCURS on a field.
+    """
+    layout = parse(
+        "000100 01  REC.\n"
+        "000200     05  BEFORE     PIC X(02).\n"
+        "000300     05  LINE-ITEM  PIC X(40) OCCURS 5 TIMES.\n"
+        "000400     05  AFTER      PIC X(03).\n")
+    assert layout.find("LINE-ITEM").total_size() == 200
+    assert layout.find("AFTER").offset == 2 + 200
+    assert layout.record_length() == 2 + 200 + 3
+
+
+def test_a_group_and_an_elementary_occurs_agree_on_length():
+    """The same repetition expressed both ways must measure the same."""
+    grouped = parse("000100 01  R.\n"
+                    "000200     05  G OCCURS 4 TIMES.\n"
+                    "000300         10  V   PIC X(06).\n")
+    flat = parse("000100 01  R.\n"
+                 "000200     05  V   PIC X(06) OCCURS 4 TIMES.\n")
+    assert grouped.record_length() == flat.record_length() == 24
