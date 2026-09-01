@@ -22,6 +22,8 @@ PAIRS = [
     ("demo/carddemo/CVACT01Y.cpy", "demo/carddemo/ACCTDATA.PS"),
     ("demo/carddemo/CVCUS01Y.cpy", "demo/carddemo/CUSTDATA.PS"),
     ("demo/carddemo/CVACT02Y.cpy", "demo/carddemo/CARDDATA.PS"),
+    # a RECFM=VB file, so the comparison actually exercises descriptor words
+    ("samples/data/variable-blocked.cpy", "samples/data/variable-blocked.dat"),
 ]
 LIMIT = 300
 
@@ -45,6 +47,10 @@ def main() -> None:
             "copybook": cp.read_text(),
             "data": base64.b64encode(raw).decode(),
             "record_len": layout.record_length(),
+            # how many records were actually READ. Comparing findings alone let a
+            # reader that returned nothing agree with one that read 30, because
+            # both produce an empty finding list.
+            "records": next(iter(stats.values())).examined if stats else 0,
             "fields": [{"name": f.name, "offset": f.offset,
                         "len": f.total_size(), "usage": f.usage.value}
                        for f in layout.elementary_fields()],

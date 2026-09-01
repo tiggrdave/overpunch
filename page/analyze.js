@@ -46,6 +46,27 @@ if(de) de.onclick=function(){
 function msgText(){ return document.getElementById("run-msg").textContent; }
 document.getElementById("run-analyze").onclick=analyse;
 
+/* Only the divisors of the file size can be the record length. Saying which,
+   and whether one is this record plus a header, turns a dead end into a lead. */
+function explainMismatch(size, recordLen){
+  var notes = [];
+  [[4,"a 4-byte record descriptor word (RECFM=VB)"],
+   [8,"a block and record descriptor word (RECFM=VBS)"],
+   [1,"a one-byte line terminator"],
+   [2,"a two-byte line terminator (CRLF)"]].forEach(function(x){
+    if(size % (recordLen + x[0]) === 0)
+      notes.push(recordLen+" + "+x[0]+" = "+(recordLen+x[0])+" divides it exactly into "+
+        (size/(recordLen+x[0])).toLocaleString()+" records, which is this record plus "+x[1]);
+  });
+  var exact = [];
+  for(var i = 8; i <= Math.min(4096, size) && exact.length < 14; i++)
+    if(size % i === 0) exact.push(i);
+  if(exact.length) notes.push("record lengths that would divide this file exactly: "+exact.join(", "));
+  if(!notes.length) notes.push("no plausible record length divides this file exactly; "+
+    "it may carry a header, a trailer, or variable-length records");
+  return notes;
+}
+
 function analyse(){
   var host=document.getElementById("result");
   host.hidden=false; host.textContent="";
@@ -100,19 +121,21 @@ function analyse(){
       "be trustworthy, so the scan stops here."));
     d.appendChild(el("div","fev","file_bytes="+datBytes.length.toLocaleString()+
       "   record_length="+layout.recordLen+
-      "   remainder="+(datBytes.length%layout.recordLen)+
-      "   ·   a variable-length (RECFM=VB) file will always look like this"));
+      "   remainder="+(datBytes.length%layout.recordLen)));
+    explainMismatch(datBytes.length, layout.recordLen).forEach(function(note){
+      d.appendChild(el("div","fev","— "+note));
+    });
     host.appendChild(d);
     msg("");
     return;
   }
 
-  SCAN.setTable(TABLES[enc]);
   var limited=Math.min(n,MAX_RECORDS);
   var res=SCAN.scan(layout,datBytes,MAX_RECORDS);
   var found=SCAN.findings(layout,res);
 
   host.appendChild(el("div","eyebrow",datName+"  ·  "+n.toLocaleString()+" records"+
+    (res.recfm==="vb" ? "  ·  RECFM=VB, descriptor words stripped" : "")+
     (limited<n ? "  ·  first "+limited.toLocaleString()+" examined" : "")+"  ·  "+enc));
 
   if(!found.length){

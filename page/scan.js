@@ -127,19 +127,48 @@ function observe(st, f, bytes, off){
   if(!f.pic.signed) st.sumForced += sp2.s * v / div;
 }
 
+/* RECFM=VB: each record carries a 4-byte descriptor word - a big-endian length
+   that INCLUDES the RDW, then two reserved zero bytes. Divisibility alone is not
+   the test; the descriptor has to be real. */
+function recordOffsets(bytes, recordLen){
+  if(recordLen > 0 && bytes.length % recordLen === 0){
+    var offs = [];
+    for(var i = 0; i + recordLen <= bytes.length; i += recordLen) offs.push(i);
+    return {recfm: "fixed", offsets: offs};
+  }
+  if(bytes.length >= 4){
+    var declared = (bytes[0] << 8) | bytes[1];
+    if(bytes[2] === 0 && bytes[3] === 0 && declared > 4 && declared <= 32767 &&
+       (declared - 4 === recordLen || bytes.length % declared === 0)){
+      var o = [], at = 0;
+      while(at + 4 <= bytes.length){
+        var len = (bytes[at] << 8) | bytes[at+1];
+        if(len < 4 || bytes[at+2] !== 0 || bytes[at+3] !== 0) break;
+        if(at + len > bytes.length) break;
+        o.push(at + 4);
+        at += len;
+      }
+      if(o.length) return {recfm: "vb", offsets: o};
+    }
+  }
+  return {recfm: "mismatch", offsets: []};
+}
+
 function scan(layout, bytes, limit){
-  var stats = {}, n = Math.floor(bytes.length / layout.recordLen);
-  if(limit) n = Math.min(n, limit);
+  var stats = {}, found = recordOffsets(bytes, layout.recordLen);
+  var offsets = found.offsets;
+  if(limit) offsets = offsets.slice(0, limit);
+  var n = offsets.length;
   layout.fields.forEach(function(f){
     stats[f.name] = {examined:0, blank:0, allZero:0, nonDigitLast:0, negative:0,
                      positive:0, widest:0, distinct:{}, undecodable:0,
                      invalidPacked:0, sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
   for(var r = 0; r < n; r++){
-    var off = r * layout.recordLen;
+    var off = offsets[r];
     layout.fields.forEach(function(f){ observe(stats[f.name], f, bytes, off); });
   }
-  return {stats:stats, records:n};
+  return {stats:stats, records:n, recfm:found.recfm};
 }
 
 function money(x){ return x.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -252,5 +281,6 @@ function findings(layout, res){
   return out;
 }
 
-return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign, text:text};
+return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign,
+        text:text, recordOffsets:recordOffsets};
 })();

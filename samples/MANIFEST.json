@@ -66,14 +66,12 @@
   },
   {
     "name": "variable-blocked",
-    "why": "RECFM=VB: every record carries a 4-byte record descriptor word, which this tool does not yet unpack",
+    "why": "RECFM=VB: every record carries a 4-byte record descriptor word",
     "encoding": "cp037",
-    "expect": [
-      "LAYOUT_MISMATCH"
-    ],
+    "expect": [],
     "record_bytes": 22,
-    "records": null,
-    "note": "a known limitation, and it fails loudly instead of decoding wrongly",
+    "records": 30,
+    "note": "the 4-byte descriptor word is detected and stripped",
     "copybook": "variable-blocked.cpy",
     "data": "variable-blocked.dat"
   },

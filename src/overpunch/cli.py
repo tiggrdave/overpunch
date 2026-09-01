@@ -20,7 +20,7 @@ from .resolve import adjudicate as adjudicate_resolutions
 from .resolve import propose as propose_resolutions
 from .vision import VisionError, declared_length_in, reconstruct
 from .layout import Layout
-from .probe import LayoutMismatch, iter_records, scan
+from .probe import LayoutMismatch, detect_recfm, iter_records, scan
 
 
 def _layout_table(layout: Layout) -> str:
@@ -68,10 +68,15 @@ def cmd_scan(args) -> int:
     layout = parse_file(args.copybook)
     size = Path(args.data).stat().st_size
     rlen = layout.record_length()
+    recfm = (detect_recfm(args.data, rlen) if args.recfm == "auto" else args.recfm)
     print(f"copybook : {args.copybook}")
     print(f"data     : {args.data}  ({size:,} bytes)")
-    print(f"record   : {rlen} bytes  ->  {size / rlen:,.2f} records")
-    if size % rlen:
+    if recfm == "vb":
+        print(f"record   : {rlen} bytes, RECFM=VB - each record carries a "
+              f"4-byte descriptor word")
+    else:
+        print(f"record   : {rlen} bytes  ->  {size / rlen:,.2f} records")
+    if recfm != "vb" and size % rlen:
         print()
         print(f"[CRITICAL] LAYOUT_MISMATCH")
         print(f"    the file is not a whole multiple of the copybook's record length; "
@@ -80,9 +85,13 @@ def cmd_scan(args) -> int:
               f"remainder={size % rlen}")
         print("    this copybook does not describe this file. Nothing below would "
               "be trustworthy, so the scan stops here.")
+        from .probe import explain_mismatch
+        for note in explain_mismatch(size, rlen):
+            print(f"    - {note}")
         return 2
 
-    stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit)
+    stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit,
+                 recfm=recfm)
     findings = evaluate(layout, stats)
     examined = next(iter(stats.values())).examined if stats else 0
     print(f"encoding : {args.encoding}")
@@ -105,7 +114,8 @@ def cmd_decode(args) -> int:
     fields = [f for f in layout.elementary_fields() if not f.is_filler]
     columns: dict[str, list] = {f.name: [] for f in fields}
     n = 0
-    for rec in iter_records(args.data, layout.record_length()):
+    for rec in iter_records(args.data, layout.record_length(),
+                            recfm=getattr(args, 'recfm', 'auto')):
         if args.limit is not None and n >= args.limit:
             break
         for f in fields:
@@ -341,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("data")
     p.add_argument("--encoding", default="cp037")
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
+                   help="record format; auto detects a VB descriptor word")
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("decode", help="decode to Parquet or CSV")
@@ -349,6 +361,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-o", "--out", default="out.parquet")
     p.add_argument("--encoding", default="cp037")
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
+                   help="record format; auto detects a VB descriptor word")
     p.set_defaults(func=cmd_decode)
 
     p = sub.add_parser("explain",

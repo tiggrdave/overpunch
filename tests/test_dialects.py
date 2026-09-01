@@ -210,3 +210,68 @@ def test_procedure_code_is_named_as_such_not_reported_as_a_parse_failure():
         parse(PROCEDURE_CODE)
     assert "procedure-division code" in str(exc.value)
     assert "no PICTURE clauses" in str(exc.value)
+
+
+# --- 8. variable-length records with a descriptor word ----------------------
+
+VB_CPY = "000100 01  REC.\n000200     05  BODY  PIC X(70).\n"
+
+
+def vb_file(tmp_path, records=779, body_len=70):
+    """RECFM=VB: a 4-byte RDW per record - big-endian length INCLUDING the RDW,
+    then two reserved zero bytes."""
+    path = tmp_path / "vb.dat"
+    with open(path, "wb") as fh:
+        for i in range(records):
+            body = f"RECORD{i:06d}".ljust(body_len).encode("cp037")
+            fh.write((body_len + 4).to_bytes(2, "big") + b"\x00\x00" + body)
+    return path
+
+
+def test_a_vb_file_is_detected_and_read(tmp_path):
+    """A 70-byte record with a 4-byte descriptor is 74 on disk, which is why
+    the file divides by 74 and not by 70."""
+    from overpunch.probe import detect_recfm, iter_records
+    path = vb_file(tmp_path)
+    assert path.stat().st_size == 779 * 74
+    assert detect_recfm(str(path), 70) == "vb"
+    records = list(iter_records(str(path), 70))
+    assert len(records) == 779
+    assert all(len(r) == 70 for r in records)
+    assert records[0].decode("cp037").strip() == "RECORD000000"
+
+
+def test_a_fixed_file_is_not_mistaken_for_vb(tmp_path):
+    """Divisibility alone is not the test: the descriptor word has to be real."""
+    from overpunch.probe import detect_recfm
+    path = tmp_path / "fixed.dat"
+    path.write_bytes(("X" * 70).encode("cp037") * 100)
+    assert detect_recfm(str(path), 70) == "fixed"
+
+
+def test_a_broken_descriptor_word_is_reported_not_decoded(tmp_path):
+    """Once the reader is out of step every later record is nonsense, so it must
+    stop rather than produce plausible garbage."""
+    from overpunch.probe import VariableRecordError, iter_records
+    path = vb_file(tmp_path, records=5)
+    raw = bytearray(path.read_bytes())
+    raw[2 * 74 + 2] = 0x07                    # corrupt the third RDW's reserved bytes
+    path.write_bytes(bytes(raw))
+    with pytest.raises(VariableRecordError) as exc:
+        list(iter_records(str(path), 70))
+    assert "record descriptor word" in str(exc.value)
+
+
+def test_the_mismatch_message_names_the_descriptor_word():
+    """What the screenshot needed: not 'it does not divide', but why."""
+    from overpunch.probe import explain_mismatch
+    notes = " ".join(explain_mismatch(57_646, 70))
+    assert "70 + 4 = 74" in notes
+    assert "779 records" in notes
+    assert "RECFM=VB" in notes
+
+
+def test_the_mismatch_message_lists_what_could_divide():
+    from overpunch.probe import explain_mismatch
+    notes = " ".join(explain_mismatch(57_646, 58))
+    assert "74" in notes and "82" in notes

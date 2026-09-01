@@ -152,11 +152,9 @@ def build_variable_blocked():
                 f"{rng.randrange(1000,9999):04d}").encode("cp037")
         out += (len(body) + 4).to_bytes(2, "big") + b"\x00\x00" + body
     sample("variable-blocked",
-           "RECFM=VB: every record carries a 4-byte record descriptor word, "
-           "which this tool does not yet unpack",
-           CLEAN_CPY, bytes(out), expect=["LAYOUT_MISMATCH"],
-           record_bytes=22, records=None,
-           note="a known limitation, and it fails loudly instead of decoding wrongly")
+           "RECFM=VB: every record carries a 4-byte record descriptor word",
+           CLEAN_CPY, bytes(out), expect=[], record_bytes=22, records=30,
+           note="the 4-byte descriptor word is detected and stripped")
 
 
 # ------------------------------------------------------------ 7. all-blank

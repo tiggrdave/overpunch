@@ -61,10 +61,11 @@ def test_each_sample_produces_exactly_the_findings_it_was_built_for(case):
 def test_the_record_count_is_what_was_generated(case):
     if not case["data"] or case["records"] is None:
         pytest.skip("no declared record count")
+    from overpunch.probe import iter_records
     layout = parse_file(str(DATA / case["copybook"]))
-    size = (DATA / case["data"]).stat().st_size
-    assert size % layout.record_length() == 0
-    assert size // layout.record_length() == case["records"]
+    counted = sum(1 for _ in iter_records(str(DATA / case["data"]),
+                                          layout.record_length()))
+    assert counted == case["records"]
 
 
 def test_the_clean_sample_really_is_clean():

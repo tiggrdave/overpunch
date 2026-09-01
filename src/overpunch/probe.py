@@ -61,7 +61,61 @@ class FieldStats:
     sum_forced_signed: Decimal = Decimal(0)  # what an unsigned field WOULD total
 
 
-def iter_records(path: str, record_length: int, chunk_records: int = 4096):
+def detect_recfm(path: str, record_length: int) -> str:
+    """Fixed, or variable-length with a record descriptor word?
+
+    A VB record carries a 4-byte RDW: a big-endian length that INCLUDES the RDW
+    itself, then two zero bytes. So the test is not arithmetic alone - the first
+    RDW has to read as a sane length, and its reserved bytes have to be zero.
+    Guessing from divisibility would call any file whose size happens to divide
+    by record_length + 4 variable-length.
+    """
+    size = os.path.getsize(path)
+    if record_length > 0 and size % record_length == 0:
+        return "fixed"
+    with open(path, "rb") as fh:
+        head = fh.read(4)
+    if len(head) == 4:
+        declared = int.from_bytes(head[:2], "big")
+        if head[2:] == b"\x00\x00" and 4 < declared <= 32767:
+            if declared - 4 == record_length or size % declared == 0:
+                return "vb"
+    return "fixed"
+
+
+def _iter_vb(path: str, record_length: int):
+    """Yield the body of each variable-length record, RDW stripped."""
+    with open(path, "rb") as fh:
+        offset = 0
+        while True:
+            rdw = fh.read(4)
+            if not rdw:
+                return
+            if len(rdw) < 4:
+                raise LayoutMismatch(os.path.getsize(path), record_length,
+                                     len(rdw))
+            declared = int.from_bytes(rdw[:2], "big")
+            if declared < 4 or rdw[2:] != b"\x00\x00":
+                raise VariableRecordError(
+                    f"at byte {offset}: expected a record descriptor word, got "
+                    f"{rdw.hex()}. Either this file is not RECFM=VB, or an "
+                    f"earlier record's length was wrong and the reader is now "
+                    f"out of step.")
+            body = fh.read(declared - 4)
+            if len(body) != declared - 4:
+                raise VariableRecordError(
+                    f"at byte {offset}: the record descriptor asks for "
+                    f"{declared - 4} bytes and the file has {len(body)} left")
+            offset += declared
+            yield body
+
+
+class VariableRecordError(Exception):
+    pass
+
+
+def iter_records(path: str, record_length: int, chunk_records: int = 4096,
+                 recfm: str = "auto"):
     """Yield fixed-length records, streaming.
 
     This used to read the whole file into memory before yielding anything. On
@@ -75,6 +129,12 @@ def iter_records(path: str, record_length: int, chunk_records: int = 4096):
     """
     if record_length <= 0:
         raise ValueError("record length must be positive")
+    if recfm == "auto":
+        recfm = detect_recfm(path, record_length)
+    if recfm == "vb":
+        yield from _iter_vb(path, record_length)
+        return
+
     size = os.path.getsize(path)
     remainder = size % record_length
     if remainder:
@@ -90,21 +150,61 @@ def iter_records(path: str, record_length: int, chunk_records: int = 4096):
                 yield data[i:i + record_length]
 
 
+def divisors(size: int, low: int = 2, high: int = 8192) -> list[int]:
+    """Every record length that would divide this file exactly."""
+    out = []
+    for n in range(low, min(high, size) + 1):
+        if size % n == 0:
+            out.append(n)
+    return out
+
+
+def explain_mismatch(filesize: int, record_length: int) -> list[str]:
+    """Turn 'this does not divide' into a lead worth following.
+
+    The file size is a hard constraint: only its divisors can be the record
+    length. Saying which ones they are, and whether any is this copybook's
+    record plus a header, is the difference between a dead end and a diagnosis.
+    """
+    notes = []
+    exact = divisors(filesize)
+    for extra, what in ((4, "a 4-byte record descriptor word (RECFM=VB)"),
+                        (8, "a block and record descriptor word (RECFM=VBS)"),
+                        (1, "a one-byte line terminator"),
+                        (2, "a two-byte line terminator (CRLF)")):
+        if filesize % (record_length + extra) == 0:
+            notes.append(
+                f"{record_length} + {extra} = {record_length + extra} divides it "
+                f"exactly into {filesize // (record_length + extra):,} records, "
+                f"which is this record plus {what}")
+    plausible = [n for n in exact if 8 <= n <= 4096]
+    if plausible:
+        notes.append("record lengths that would divide this file exactly: "
+                     + ", ".join(str(n) for n in plausible[:14])
+                     + (" ..." if len(plausible) > 14 else ""))
+    if not notes:
+        notes.append("no plausible record length divides this file exactly; it "
+                     "may carry a header, a trailer, or variable-length records")
+    return notes
+
+
 class LayoutMismatch(Exception):
     def __init__(self, filesize: int, record_length: int, remainder: int):
         self.filesize, self.record_length, self.remainder = filesize, record_length, remainder
+        self.notes = explain_mismatch(filesize, record_length)
         super().__init__(
             f"file of {filesize} bytes is not a whole multiple of the copybook's "
-            f"{record_length}-byte record ({remainder} bytes left over)")
+            f"{record_length}-byte record ({remainder} bytes left over)"
+            + "".join(f"\n  - {n}" for n in self.notes))
 
 
 def scan(path: str, layout: Layout, encoding: str = "cp037",
-         limit: int | None = None) -> dict[str, FieldStats]:
+         limit: int | None = None, recfm: str = "auto") -> dict[str, FieldStats]:
     fields = layout.elementary_fields()
     stats = {f.name: FieldStats(name=f.name) for f in fields}
     rlen = layout.record_length()
 
-    for n, rec in enumerate(iter_records(path, rlen)):
+    for n, rec in enumerate(iter_records(path, rlen, recfm=recfm)):
         if limit is not None and n >= limit:
             break
         for fld in fields:

@@ -232,6 +232,32 @@ as NULL in a format that has no NULL; and whether `COMP-1` is IBM hexadecimal or
 IEEE, which **nothing in the bytes distinguishes** — so the default is written
 onto the column it affects.
 
+## When a file will not divide
+
+`LAYOUT_MISMATCH` used to be a dead end: *"this copybook does not describe this
+file"*, and nothing more. But the file size is a hard constraint — **only its
+divisors can be the record length** — so the tool now says which they are, and
+whether one of them is this copybook's record plus a header:
+
+```
+[CRITICAL] LAYOUT_MISMATCH
+    evidence: file_bytes=57,646  record_length=70  remainder=36
+    - 70 + 4 = 74 divides it exactly into 779 records, which is this record
+      plus a 4-byte record descriptor word (RECFM=VB)
+    - record lengths that would divide this file exactly: 19, 37, 38, 41, 74,
+      82, 703, 779, 1406, 1517, 1558, 3034
+```
+
+That is a real diagnosis rather than a refusal, and it came from watching
+someone load a real 57,646-byte file, get the refusal, and have nowhere to go.
+
+**`RECFM=VB` is now read**, in both implementations. Each record carries a
+4-byte descriptor word — a big-endian length including the RDW, then two
+reserved zero bytes — and detection requires a *real* descriptor, not merely a
+size that happens to divide by `record_length + 4`. A descriptor that stops
+making sense mid-file raises, because once the reader is out of step every
+record after it is plausible nonsense.
+
 ## Diagrams
 
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — seven diagrams, each carrying a
@@ -453,9 +479,6 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 
 - `OCCURS DEPENDING ON` reserves the maximum; genuinely variable-length records
   are not yet unpacked per-record.
-- True variable-length records (`RECFM=VB` with a record descriptor word) are not
-  yet unpacked; `scan` reports that the arithmetic does not work out rather than
-  decoding them wrongly.
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
 

@@ -55,6 +55,11 @@ for (const c of ref.cases) {
   const res = SCAN.scan(layout, bytes);
   const got = SCAN.findings(layout, res);
 
+  if (typeof c.records === "number" && res.records !== c.records) {
+    console.log(`  ${c.name}: records read JS=${res.records} PY=${c.records}`);
+    failures++;
+  }
+
   const key = f => `${f.code}|${f.field}`;
   const jsSet = new Set(got.map(key)), pySet = new Set(c.findings.map(key));
   for (const k of pySet) if (!jsSet.has(k)) { console.log(`  ${c.name}: PY reports ${k}, JS does not`); failures++; }
