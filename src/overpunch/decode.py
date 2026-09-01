@@ -137,12 +137,56 @@ def encode_packed(value: Decimal, digits: int, scale: int = 0) -> bytes:
     return bytes(out)
 
 
+def decode_hex_float(raw: bytes) -> Decimal:
+    """IBM hexadecimal floating point - COMP-1 (4 bytes) and COMP-2 (8 bytes).
+
+    This is NOT IEEE 754. One sign bit, a 7-bit exponent biased by 64, and a
+    fraction interpreted in base SIXTEEN: value = -1^s * 0.F * 16^(E-64).
+    Reading these bytes with struct.unpack('>f') returns a plausible number that
+    is simply wrong, which is the reason this function exists rather than a
+    one-line call.
+
+    (A compiler option can emit IEEE instead. Legacy extracts are overwhelmingly
+    hexadecimal, so that is the default here; nothing in the bytes distinguishes
+    them, which is worth knowing before trusting either reading.)
+    """
+    if len(raw) not in (4, 8):
+        raise DecodeError(f"hex float must be 4 or 8 bytes, got {len(raw)}")
+    sign = -1 if raw[0] & 0x80 else 1
+    exponent = (raw[0] & 0x7F) - 64
+    fraction_bits = int.from_bytes(raw[1:], "big")
+    if fraction_bits == 0:
+        return Decimal(0)
+    fraction = Decimal(fraction_bits) / Decimal(1 << (8 * (len(raw) - 1)))
+    return sign * fraction * (Decimal(16) ** exponent)
+
+
+def encode_hex_float(value: Decimal, width: int = 4) -> bytes:
+    """Inverse of decode_hex_float, for building fixtures."""
+    if value == 0:
+        return bytes(width)
+    negative = value < 0
+    v = abs(Decimal(value))
+    exponent = 0
+    while v >= 1:
+        v /= 16
+        exponent += 1
+    while v < Decimal("0.0625"):
+        v *= 16
+        exponent -= 1
+    fraction_bits = int(v * (1 << (8 * (width - 1))))
+    head = (0x80 if negative else 0) | ((exponent + 64) & 0x7F)
+    return bytes([head]) + fraction_bits.to_bytes(width - 1, "big")
+
+
 def decode_binary(raw: bytes, signed: bool = True) -> int:
     """COMP / COMP-4: big-endian, two's complement when signed."""
     return int.from_bytes(raw, byteorder="big", signed=signed)
 
 
 def decode_field(raw: bytes, fld: Field, encoding: str = "cp037"):
+    if fld.usage in (Usage.COMP1, Usage.COMP2):
+        return decode_hex_float(raw)
     pic = fld.pic
     if pic is None:
         raise DecodeError(f"{fld.name} is a group item")

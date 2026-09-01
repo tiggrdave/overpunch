@@ -162,6 +162,31 @@ byte of its data are invented for this repository.** No copybook, record layout,
 or dataset belonging to any organisation appears here, and none informed the
 demo's structure.
 
+## The torture record
+
+`demo/TORTURE.cpy` is the hardest record I could write: packed decimal with an
+odd digit count, three widths of binary, leading and trailing separate signs,
+IBM hexadecimal floats that carry no `PICTURE` at all, a repeating group, a
+variable repeating group, and two `REDEFINES` competing for the same twenty
+bytes. Its expected length is computed by hand in the test file, field by field,
+because a test that asks the code for the answer and then agrees with it proves
+nothing.
+
+It found four defects on first contact:
+
+- `COMP-1`/`COMP-2` have a `USAGE` and **no `PICTURE`**. They sized to zero and
+  were dropped from the field list, shortening the record by 12 bytes.
+- A group with `OCCURS 4` advanced the cursor by **one** occurrence, so the
+  record length and the field offsets disagreed with each other.
+- IBM floats are **hexadecimal, not IEEE 754**. `0x41100000` is `1.0`; read it
+  with `struct.unpack('>f')` and you get `9.0`. No error, just a wrong number.
+- The copybook line itself ran past **column 72**. The compiler discards columns
+  73-80, so the terminating period was thrown away, the statement swallowed the
+  next line, the group inherited a `PICTURE` from what it ate, and the layout
+  came out **131 bytes instead of 161** with nothing raised.
+
+The last one is now refused outright, naming the discarded text.
+
 ## Tests are rehearsals
 
 > A check that has never failed proves it EXECUTES, not that it CATCHES.
@@ -189,12 +214,11 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 
 - `OCCURS DEPENDING ON` reserves the maximum; genuinely variable-length records
   are not yet unpacked per-record.
-- `REDEFINES` offsets are computed correctly, but choosing *which* branch is live
-  needs a discriminator the tool does not yet ask for.
-- Variable-blocked (`RECFM=VB`) files carrying a 4-byte record descriptor word
-  are not yet handled; `scan` will tell you the arithmetic does not work out
-  rather than decode them wrongly.
-- `COMP-1`/`COMP-2` sizes are honoured but the values are not yet decoded.
+- True variable-length records (`RECFM=VB` with a record descriptor word) are not
+  yet unpacked; `scan` reports that the arithmetic does not work out rather than
+  decoding them wrongly.
+- Choosing which `REDEFINES` branch is live still needs a discriminator rule the
+  tool does not yet ask for.
 
 ## Licence
 

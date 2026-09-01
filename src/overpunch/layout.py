@@ -71,6 +71,11 @@ class Field:
         return self._elementary_size()
 
     def _elementary_size(self) -> int:
+        # COMP-1/COMP-2 are declared with a USAGE and no PICTURE at all
+        if self.usage is Usage.COMP1:
+            return 4
+        if self.usage is Usage.COMP2:
+            return 8
         p = self.pic
         if p is None:
             return 0
@@ -85,15 +90,15 @@ class Field:
             if p.digits <= 9:
                 return 4
             return 8
-        if self.usage is Usage.COMP1:
-            return 4
-        if self.usage is Usage.COMP2:
-            return 8
         # DISPLAY numeric: one byte per digit, plus a byte if the sign is separate
         return p.digits + (1 if (p.signed and self.sign_separate) else 0)
 
     def total_size(self) -> int:
         return self.size() * self.occurs
+
+
+class LayoutError(ValueError):
+    pass
 
 
 @dataclass
@@ -120,8 +125,45 @@ class Layout:
                 target = self.find(c.redefines)
                 self._walk_offsets(c, target.offset if target else cursor)
                 continue
-            cursor = self._walk_offsets(c, cursor)
+            end = self._walk_offsets(c, cursor)
+            # offsets are laid out for the FIRST occurrence, but the cursor has to
+            # step over all of them or every later field lands too early
+            cursor = cursor + (end - cursor) * c.occurs
         return cursor
+
+    def validate(self) -> None:
+        """Refuse a layout whose offsets and record length disagree.
+
+        Both are derived from the same field widths by different routes, so they
+        can only differ if the walk is wrong. Returning such a layout means every
+        field after the fault reads the wrong bytes and nothing says so.
+        """
+        for f in self.walk_all():
+            if f.children and f.pic is not None:
+                raise LayoutError(
+                    f"{f.name!r} has both a PICTURE and subordinate fields, which "
+                    f"COBOL does not allow. The usual cause is a statement that "
+                    f"lost its terminating period - check for a line running past "
+                    f"column 72.")
+        leaves = self.elementary_fields()
+        if not leaves:
+            return
+        reach = max(f.offset + f.total_size() for f in leaves)
+        if reach > self.record_length():
+            raise LayoutError(
+                f"field offsets reach byte {reach} but the record is "
+                f"{self.record_length()} bytes; the layout disagrees with itself")
+
+    def walk_all(self) -> list[Field]:
+        out: list[Field] = []
+
+        def rec(f: Field) -> None:
+            out.append(f)
+            for c in f.children:
+                rec(c)
+
+        rec(self.root)
+        return out
 
     def elementary_fields(self) -> list[Field]:
         out: list[Field] = []
@@ -130,7 +172,7 @@ class Layout:
             if f.children:
                 for c in f.children:
                     rec(c)
-            elif f.pic is not None:
+            elif f.pic is not None or f.usage in (Usage.COMP1, Usage.COMP2):
                 out.append(f)
 
         rec(self.root)

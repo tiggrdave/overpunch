@@ -98,7 +98,34 @@ def _tokens(stmt: str) -> list[str]:
     return _TOKEN_RE.findall(stmt)
 
 
+def check_truncation(text: str) -> None:
+    """Refuse source whose statement terminator falls past column 72.
+
+    Columns 73-80 are the identification area and a COBOL compiler discards
+    them - correctly. But if the discarded tail carried the period and the kept
+    part has none, the statement never terminates: it swallows the following
+    line, the field inherits a PICTURE from whatever it ate, and the record
+    length comes out wrong with nothing raised.
+
+    Detected here rather than downstream because the corrupted parse that
+    results is entirely plausible. It is only wrong.
+    """
+    for n, raw in enumerate(text.splitlines(), start=1):
+        line = raw.rstrip("\n\r")
+        if len(line) <= 72 or not re.match(r"^\d{6}", line):
+            continue
+        kept, discarded = line[6:72], line[72:]
+        if "." in discarded and "." not in kept:
+            raise CopybookError(
+                f"line {n} runs past column 72 and its terminating period falls "
+                f"in the discarded identification area, so the statement never "
+                f"ends and merges with the next one. Shorten the line.\n"
+                f"  kept      : {kept.rstrip()!r}\n"
+                f"  discarded : {discarded!r}")
+
+
 def parse(text: str, source_name: str = "<copybook>") -> Layout:
+    check_truncation(text)
     root: Field | None = None
     stack: list[Field] = []
     last_elementary: Field | None = None
@@ -184,6 +211,7 @@ def parse(text: str, source_name: str = "<copybook>") -> Layout:
 
     layout = Layout(root=root, source_name=source_name)
     layout.assign_offsets()
+    layout.validate()
     return layout
 
 
