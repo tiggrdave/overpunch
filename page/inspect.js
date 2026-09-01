@@ -13,7 +13,11 @@ function msg(t, bad){ var m = document.getElementById("run-msg");
   m.textContent = t || ""; m.className = "rmsg" + (bad ? " bad" : ""); }
 function pane(id){ return document.getElementById("tab-" + id); }
 function badge(id, text, crit){
+  // A tab without a badge is not an error. This threw during startup when the
+  // Convert tab was added without one, and because clearAll() runs on load it
+  // took the whole page down rather than just that tab.
   var b = document.getElementById("b-" + id);
+  if(!b) return;
   b.textContent = text == null ? "" : String(text);
   b.className = "badge" + (crit ? " crit" : "");
 }
@@ -32,7 +36,7 @@ function clearOne(which){
   else { datBytes = null; datName = ""; cpyAfterData = false; }
   document.getElementById("in-" + which).value = "";
   setName(which, "");
-  ["layout","findings","records","schema"].forEach(function(t){
+  ["layout","findings","records","schema","convert"].forEach(function(t){
     pane(t).textContent = ""; badge(t, null); });
   document.getElementById("recordpick").hidden = true;
   msg("");
@@ -102,7 +106,7 @@ function fatal(where, message){
 }
 
 function analyse(){
-  ["layout","findings","records","schema"].forEach(function(t){
+  ["layout","findings","records","schema","convert"].forEach(function(t){
     pane(t).textContent = ""; badge(t, null); });
   if(!cpyText){
     pane("layout").appendChild(el("p", "empty",
@@ -136,6 +140,7 @@ function analyse(){
 
   renderLayout(override);
   if(!datBytes){
+    renderConvert(enc, null, override);
     pane("findings").appendChild(el("p", "empty",
       "Add a data file to measure the layout against it."));
     pane("records").appendChild(el("p", "empty", "Add a data file to decode records."));
@@ -152,8 +157,11 @@ function analyse(){
   renderFindings(SCAN.findings(layout, res), res, found);
   renderRecords(found, enc);
   renderSchema(enc);
-  msg(found.offsets.length.toLocaleString() + " records"
-      + (found.recfm === "vb" ? ", RECFM=VB" : "") + ", " + enc + ".");
+  renderConvert(enc, found, override);
+  var read = Math.min(MAX_RECORDS, found.offsets.length);
+  msg(read.toLocaleString() + " of " + found.offsets.length.toLocaleString()
+      + " records sampled" + (found.recfm === "vb" ? ", RECFM=VB" : "")
+      + ", " + enc + ".");
 }
 
 function renderLayout(override){
@@ -218,7 +226,8 @@ function renderMismatch(){
 function renderFindings(found, res, spans){
   var host = pane("findings");
   host.appendChild(el("div","eyebrow", datName + "  ·  "
-    + spans.offsets.length.toLocaleString() + " records"
+    + Math.min(MAX_RECORDS, spans.offsets.length).toLocaleString() + " of "
+    + spans.offsets.length.toLocaleString() + " records sampled"
     + (spans.recfm === "vb" ? "  ·  RECFM=VB, descriptor words stripped" : "")));
   if(!found.length){
     host.appendChild(el("p","empty","No findings. Every field decodes cleanly and "
@@ -244,8 +253,13 @@ function renderFindings(found, res, spans){
 
 function renderRecords(spans, enc){
   var host = pane("records"), n = Math.min(SHOW_ROWS, spans.offsets.length);
-  host.appendChild(el("div","eyebrow","first " + n.toLocaleString() + " of "
-    + spans.offsets.length.toLocaleString() + " records, decoded here"));
+  var note = el("div","sampled");
+  note.innerHTML = "<b>This is a sample, to confirm the format.</b> " + n.toLocaleString()
+    + " of " + spans.offsets.length.toLocaleString() + " records are decoded here — "
+    + "enough to prove the layout is right and see what the fields actually hold. "
+    + "Once it looks correct, convert the whole file with the command on the "
+    + "<b>Convert</b> tab.";
+  host.appendChild(note);
   var cols = layout.fields.filter(function(f){ return f.name.toUpperCase() !== "FILLER"; });
   var t = document.createElement("table"); t.className = "rec";
   var hr = document.createElement("tr");
@@ -264,6 +278,64 @@ function renderRecords(spans, enc){
   }
   host.appendChild(t);
   badge("records", spans.offsets.length.toLocaleString());
+}
+
+function shellQuote(name){
+  return /^[A-Za-z0-9._\/-]+$/.test(name) ? name : "'" + name.replace(/'/g, "'\\''") + "'";
+}
+
+/* The browser proves the extraction method on a sample; the command line applies
+   it to the whole file. This tab is the handover - the exact invocation, with
+   the settings that were just confirmed. */
+function renderConvert(enc, spans, override){
+  var host = pane("convert");
+  var examined = spans ? Math.min(MAX_RECORDS, spans.offsets.length) : 0;
+  var total = spans ? spans.offsets.length : 0;
+
+  var intro = el("div","sampled");
+  intro.innerHTML = "<b>Everything in this tool is a sample.</b> " +
+    (spans ? examined.toLocaleString() + " of " + total.toLocaleString() + " records were "
+           + "read to establish the layout, the code page and the findings. "
+           : "No data file is loaded yet. ") +
+    "Nothing here converts your file — a browser is the wrong place to write "
+    + "gigabytes, and it would take longer than it is worth. Prove the method here, "
+    + "then run it where the file lives.";
+  host.appendChild(intro);
+
+  [["Prove the layout", "The record length divides the file, the fields decode, and "
+    + "the text is readable in the code page you chose.", !!spans],
+   ["Settle the method", "Code page, record length, which record if the copybook "
+    + "declares several — everything the command below needs.", !!spans],
+   ["Convert at volume", "On the machine that holds the file. It streams, so memory "
+    + "stays flat whatever the size; expect roughly a minute per 100 MB.", false]
+  ].forEach(function(st, i){
+    var d = el("div","step" + (st[2] ? " done" : ""));
+    d.appendChild(el("div","num", String(i + 1)));
+    var t = el("div");
+    t.appendChild(el("h4", null, st[0]));
+    t.appendChild(el("p", null, st[1]));
+    d.appendChild(t);
+    host.appendChild(d);
+  });
+
+  var cpy = shellQuote(cpyName || "COPYBOOK.cpy");
+  var dat = shellQuote(datName || "DATAFILE");
+  var args = ["overpunch decode " + cpy + " " + dat];
+  if(enc !== "cp037") args.push("--encoding " + enc);
+  if(override > 0) args.push("--record-bytes " + override);
+  var recSel = document.getElementById("in-record");
+  if(!document.getElementById("recordpick").hidden && recSel.selectedIndex >= 0)
+    args.push("--record " + layout.root.name);
+  args.push("-o " + shellQuote((cpyName || "output").replace(/\.[^.]+$/, "") + ".parquet"));
+  var pre = el("pre","cmd"); pre.textContent = args.join(" \\\n    ");
+  host.appendChild(pre);
+
+  var also = el("p","empty");
+  also.innerHTML = "Or <span class=\"mono\">overpunch scan</span> with the same "
+    + "arguments to re-run these findings over every record rather than a sample, "
+    + "and <span class=\"mono\">overpunch plan</span> to turn the layout into a "
+    + "schema — which will stop and ask about anything the copybook cannot settle.";
+  host.appendChild(also);
 }
 
 function renderSchema(enc){

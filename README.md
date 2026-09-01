@@ -555,6 +555,46 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
 
+## Prove the method on a sample, then run it where the file lives
+
+The browser reads a **sample** — enough to establish that the copybook fits, what
+the fields hold, and what is wrong with them. It does not convert your file, and
+it says so: a browser is the wrong place to write gigabytes, and the output of a
+2 GB extract is 4–6 GB of text that has nowhere to go.
+
+So the tool's **Convert** tab hands over instead. It prints the exact command
+with the settings the sample just proved:
+
+```
+overpunch decode KUNDE.cpy KUNDE.dat \
+    --encoding cp273 \
+    --record-bytes 82 \
+    -o KUNDE.parquet
+```
+
+1. **Prove the layout** — the record length divides the file, the fields decode,
+   the text is readable in the code page you chose.
+2. **Settle the method** — code page, record length, which record if the copybook
+   declares several.
+3. **Convert at volume** — on the machine that holds the file.
+
+### What it costs, measured
+
+| | |
+|---|---|
+| 250 MB, 6,394,000 records | **176 seconds**, **23 MB** peak memory |
+| throughput | ~1.4 MB/s, ~36,000 records/second |
+| a 2 GB extract | roughly **24 minutes**, and still 23 MB of memory |
+
+Memory is flat because the reader streams; time is not, because every field is
+decoded in Python. Profiling found **33 million `isdigit()` calls** on that file —
+digits were being extracted with a per-character loop, two or three times per
+field. One `str.translate` took the run from 415 seconds to 176.
+
+There is more to get: accumulating in integers rather than `Decimal` looks worth
+another 2x, and it is not done, because it broke 48 tests on the first attempt
+and correctness is worth more than speed here.
+
 ## Two pages, because there are two jobs
 
 - **[the demo](https://tiggrdave.github.io/overpunch/)** — the argument, read top

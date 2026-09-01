@@ -18,6 +18,14 @@ _OVERPUNCH_NEG = "}JKLMNOPQR"      # cp037 renderings of 0xD0..0xD9
 
 _ASCII_SIGN_CHARS = "+-"
 
+# one C-level pass instead of a Python call per character
+_ONLY_DIGITS = str.maketrans("", "", "".join(
+    chr(c) for c in range(256) if not chr(c).isdigit()))
+
+
+def _digits(text: str) -> str:
+    return text.translate(_ONLY_DIGITS)
+
 
 class DecodeError(ValueError):
     pass
@@ -131,7 +139,7 @@ def decode_display(raw: bytes, pic: Picture, encoding: str = "cp037",
         if pic.signed:
             sign = observed
 
-    digits = "".join(c for c in text if c.isdigit()) or "0"
+    digits = _digits(text) or "0"
     value = Decimal(digits) * sign
     if pic.scale:
         value = value.scaleb(-pic.scale)
@@ -146,8 +154,7 @@ def decode_display_naive(raw: bytes, pic: Picture, encoding: str = "cp037") -> D
     measured rather than asserted.
     """
     text = decode_text(raw, encoding)
-    digits = "".join(c for c in text if c.isdigit()) or "0"
-    return Decimal(digits)
+    return Decimal(_digits(text) or "0")
 
 
 def decode_packed(raw: bytes, scale: int = 0) -> Decimal:
