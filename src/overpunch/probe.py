@@ -61,25 +61,51 @@ class FieldStats:
     sum_forced_signed: Decimal = Decimal(0)  # what an unsigned field WOULD total
 
 
+def _rdw_chain_fits(path: str, strict_reserved: bool = True,
+                    max_records: int = 5_000_000) -> bool:
+    """Walk the record-descriptor chain and see whether it lands on the end.
+
+    This is the decisive test, and it is better than looking at the first
+    descriptor: a length that happens to look plausible proves nothing, but a
+    chain of them that consumes the file EXACTLY, to the byte, is not a
+    coincidence. It also tolerates a file whose reserved bytes were not
+    preserved in transit, which the first-descriptor test did not - and that is
+    a real thing that happens to a dataset moved off a mainframe.
+    """
+    size = os.path.getsize(path)
+    if size < 4:
+        return False
+    with open(path, "rb") as fh:
+        at = 0
+        for _ in range(max_records):
+            rdw = fh.read(4)
+            if not rdw:
+                return at == size
+            if len(rdw) < 4:
+                return False
+            declared = int.from_bytes(rdw[:2], "big")
+            if declared < 4 or at + declared > size:
+                return False
+            if strict_reserved and rdw[2:] != b"\x00\x00":
+                return False
+            fh.seek(at + declared)
+            at += declared
+        return False
+
+
 def detect_recfm(path: str, record_length: int) -> str:
     """Fixed, or variable-length with a record descriptor word?
 
-    A VB record carries a 4-byte RDW: a big-endian length that INCLUDES the RDW
-    itself, then two zero bytes. So the test is not arithmetic alone - the first
-    RDW has to read as a sane length, and its reserved bytes have to be zero.
-    Guessing from divisibility would call any file whose size happens to divide
-    by record_length + 4 variable-length.
+    Divisibility decides nothing on its own: plenty of fixed files happen to
+    divide by record_length + 4. What decides it is whether the descriptor chain
+    consumes the file exactly.
     """
     size = os.path.getsize(path)
     if record_length > 0 and size % record_length == 0:
         return "fixed"
-    with open(path, "rb") as fh:
-        head = fh.read(4)
-    if len(head) == 4:
-        declared = int.from_bytes(head[:2], "big")
-        if head[2:] == b"\x00\x00" and 4 < declared <= 32767:
-            if declared - 4 == record_length or size % declared == 0:
-                return "vb"
+    for strict in (True, False):
+        if _rdw_chain_fits(path, strict_reserved=strict):
+            return "vb"
     return "fixed"
 
 
@@ -95,7 +121,7 @@ def _iter_vb(path: str, record_length: int):
                 raise LayoutMismatch(os.path.getsize(path), record_length,
                                      len(rdw))
             declared = int.from_bytes(rdw[:2], "big")
-            if declared < 4 or rdw[2:] != b"\x00\x00":
+            if declared < 4:
                 raise VariableRecordError(
                     f"at byte {offset}: expected a record descriptor word, got "
                     f"{rdw.hex()}. Either this file is not RECFM=VB, or an "
@@ -159,7 +185,30 @@ def divisors(size: int, low: int = 2, high: int = 8192) -> list[int]:
     return out
 
 
-def explain_mismatch(filesize: int, record_length: int) -> list[str]:
+def describe_head(path: str, n: int = 8) -> str:
+    """The first bytes, read as a descriptor word, for when detection fails.
+
+    If a file will not divide and will not chain, the first eight bytes usually
+    say why in one line: a sane descriptor means the chain derailed later, a
+    wild one means this is not VB at all, and printable text means the transfer
+    converted it.
+    """
+    with open(path, "rb") as fh:
+        head = fh.read(n)
+    if len(head) < 4:
+        return f"file is only {len(head)} bytes"
+    declared = int.from_bytes(head[:2], "big")
+    reserved = head[2:4]
+    hexed = " ".join(f"{b:02X}" for b in head)
+    note = (f"first bytes {hexed} - as a descriptor word that is length "
+            f"{declared}, reserved {reserved.hex()}")
+    if reserved != b"\x00\x00":
+        note += " (reserved bytes are not zero)"
+    return note
+
+
+def explain_mismatch(filesize: int, record_length: int,
+                     path: str | None = None) -> list[str]:
     """Turn 'this does not divide' into a lead worth following.
 
     The file size is a hard constraint: only its divisors can be the record
@@ -185,6 +234,11 @@ def explain_mismatch(filesize: int, record_length: int) -> list[str]:
     if not notes:
         notes.append("no plausible record length divides this file exactly; it "
                      "may carry a header, a trailer, or variable-length records")
+    if path:
+        try:
+            notes.append(describe_head(path))
+        except OSError:
+            pass
     return notes
 
 

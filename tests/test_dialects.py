@@ -255,11 +255,25 @@ def test_a_broken_descriptor_word_is_reported_not_decoded(tmp_path):
     from overpunch.probe import VariableRecordError, iter_records
     path = vb_file(tmp_path, records=5)
     raw = bytearray(path.read_bytes())
-    raw[2 * 74 + 2] = 0x07                    # corrupt the third RDW's reserved bytes
+    raw[2 * 74] = 0xFF                        # a third record longer than the file
+    raw[2 * 74 + 1] = 0xFF
     path.write_bytes(bytes(raw))
-    with pytest.raises(VariableRecordError) as exc:
-        list(iter_records(str(path), 70))
-    assert "record descriptor word" in str(exc.value)
+    with pytest.raises(VariableRecordError):
+        list(iter_records(str(path), 70, recfm="vb"))
+
+
+def test_reserved_bytes_that_did_not_survive_transit_are_tolerated(tmp_path):
+    """A descriptor's reserved bytes SHOULD be zero. On a dataset moved off a
+    mainframe they sometimes are not, and refusing the file over two bytes that
+    carry no information helps nobody. The chain landing exactly on the end of
+    the file is the evidence that matters."""
+    from overpunch.probe import detect_recfm, iter_records
+    path = tmp_path / "vbflag.dat"
+    with open(path, "wb") as fh:
+        for i in range(40):
+            fh.write((74).to_bytes(2, "big") + b"\x00\x01" + b"Z" * 70)
+    assert detect_recfm(str(path), 70) == "vb"
+    assert len(list(iter_records(str(path), 70))) == 40
 
 
 def test_the_mismatch_message_names_the_descriptor_word():

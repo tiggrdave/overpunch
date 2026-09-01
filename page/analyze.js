@@ -67,6 +67,21 @@ function explainMismatch(size, recordLen){
   return notes;
 }
 
+/* When a file neither divides nor chains, its first eight bytes usually say
+   why: a sane descriptor word means the chain derailed further in, a wild one
+   means this is not RECFM=VB, and readable text means the transfer converted it. */
+function describeHead(bytes){
+  if(bytes.length < 4) return "file is only "+bytes.length+" bytes";
+  var hex = [], i;
+  for(i = 0; i < Math.min(8, bytes.length); i++)
+    hex.push(("0"+bytes[i].toString(16).toUpperCase()).slice(-2));
+  var declared = (bytes[0] << 8) | bytes[1];
+  var note = "first bytes "+hex.join(" ")+" — as a descriptor word that is length "+
+             declared+", reserved "+hex[2]+hex[3];
+  if(bytes[2] !== 0 || bytes[3] !== 0) note += " (reserved bytes are not zero)";
+  return note;
+}
+
 function analyse(){
   var host=document.getElementById("result");
   host.hidden=false; host.textContent="";
@@ -125,6 +140,7 @@ function analyse(){
     explainMismatch(datBytes.length, layout.recordLen).forEach(function(note){
       d.appendChild(el("div","fev","— "+note));
     });
+    d.appendChild(el("div","fev","— "+describeHead(datBytes)));
     host.appendChild(d);
     msg("");
     return;

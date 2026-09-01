@@ -86,7 +86,7 @@ def cmd_scan(args) -> int:
         print("    this copybook does not describe this file. Nothing below would "
               "be trustworthy, so the scan stops here.")
         from .probe import explain_mismatch
-        for note in explain_mismatch(size, rlen):
+        for note in explain_mismatch(size, rlen, args.data):
             print(f"    - {note}")
         return 2
 

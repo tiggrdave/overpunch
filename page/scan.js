@@ -136,20 +136,21 @@ function recordOffsets(bytes, recordLen){
     for(var i = 0; i + recordLen <= bytes.length; i += recordLen) offs.push(i);
     return {recfm: "fixed", offsets: offs};
   }
-  if(bytes.length >= 4){
-    var declared = (bytes[0] << 8) | bytes[1];
-    if(bytes[2] === 0 && bytes[3] === 0 && declared > 4 && declared <= 32767 &&
-       (declared - 4 === recordLen || bytes.length % declared === 0)){
-      var o = [], at = 0;
-      while(at + 4 <= bytes.length){
-        var len = (bytes[at] << 8) | bytes[at+1];
-        if(len < 4 || bytes[at+2] !== 0 || bytes[at+3] !== 0) break;
-        if(at + len > bytes.length) break;
-        o.push(at + 4);
-        at += len;
-      }
-      if(o.length) return {recfm: "vb", offsets: o};
+  // Walk the descriptor chain and require it to land exactly on the end of the
+  // file. A first descriptor that looks plausible proves nothing; a chain that
+  // consumes the file to the byte is not a coincidence. Reserved bytes are
+  // checked strictly first, then leniently - a dataset moved off a mainframe
+  // does not always keep them.
+  for(var strict = 1; strict >= 0; strict--){
+    var o = [], at = 0, ok = true;
+    while(at + 4 <= bytes.length){
+      var len = (bytes[at] << 8) | bytes[at+1];
+      if(len < 4 || at + len > bytes.length){ ok = false; break; }
+      if(strict && (bytes[at+2] !== 0 || bytes[at+3] !== 0)){ ok = false; break; }
+      o.push(at + 4);
+      at += len;
     }
+    if(ok && at === bytes.length && o.length) return {recfm: "vb", offsets: o};
   }
   return {recfm: "mismatch", offsets: []};
 }
