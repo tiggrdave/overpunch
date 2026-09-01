@@ -222,6 +222,10 @@ def main() -> None:
     page = SKELETON.format(head=head, body=body, script=script)
     if str(ROOT) in page or "/home/" in page:
         raise SystemExit("refusing to write a page containing an absolute local path")
+    if "\ufffd" in page:
+        line = page[:page.index("\ufffd")].count("\n") + 1
+        raise SystemExit(f"refusing to write a page with a literal U+FFFD at line "
+                         f"{line} - write it as an escape, not as the character")
     out = ROOT / "docs" / "index.html"
     out.write_text(page)
     (ROOT / "docs" / ".nojekyll").write_text("")

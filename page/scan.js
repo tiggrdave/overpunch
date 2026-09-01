@@ -31,7 +31,7 @@ function fieldLen(f){ return COBOL.size(f) * f.occurs; }
 function observe(st, f, bytes, off){
   st.examined++;
   var len = fieldLen(f), t = text(bytes, off + f.offset, len);
-  if(t.indexOf("�") >= 0) st.undecodable++;
+  if(t.indexOf("\uFFFD") >= 0) st.undecodable++;   // replacement char, escaped
 
   if(!f.pic || !f.pic.numeric){
     st.distinct[t] = (st.distinct[t]||0) + 1;
