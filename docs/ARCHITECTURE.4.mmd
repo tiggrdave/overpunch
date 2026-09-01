@@ -1,0 +1,20 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"IBM Plex Sans, system-ui, sans-serif","lineColor":"#6B7885","edgeLabelBackground":"#FFFFFF","primaryTextColor":"#17212B"}}}%%
+flowchart LR
+  CPY["copybook"]:::data
+  PLAN["extraction plan<br/><small>reviewable, diffable</small>"]:::det
+  Q{"any decision<br/>still open?"}:::det
+  ASK["refuse, and say what<br/>needs deciding<br/><small>REDEFINES branch,<br/>primary key</small>"]:::bad
+  HUMAN["a person answers"]:::data
+  DDL["PostgreSQL DDL"]:::det
+  JS["JSON Schema"]:::det
+  LD["loader script"]:::det
+
+  CPY --> PLAN --> Q
+  Q -- yes --> ASK --> HUMAN --> PLAN
+  Q -- no --> DDL
+  Q -- no --> JS
+  Q -- no --> LD
+
+  classDef det  fill:#DDEFE7,stroke:#1E7A5B,color:#123C2D;
+  classDef data fill:#E4EEF3,stroke:#2F6F8F,color:#12333F;
+  classDef bad  fill:#F6DEDC,stroke:#A5322C,color:#4A1614;

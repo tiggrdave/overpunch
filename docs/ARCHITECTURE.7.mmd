@@ -1,0 +1,32 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"IBM Plex Sans, system-ui, sans-serif","lineColor":"#6B7885","edgeLabelBackground":"#FFFFFF","primaryTextColor":"#17212B"}}}%%
+flowchart LR
+  layout["layout.py<br/><small>fields, widths, offsets</small>"]:::det
+  copybook["copybook.py<br/><small>parser + guards</small>"]:::det
+  decode["decode.py<br/><small>EBCDIC, overpunch,<br/>packed, IBM hex float</small>"]:::det
+  probe["probe.py<br/><small>evidence over the bytes</small>"]:::det
+  pred["predicates.py<br/><small>one definition per rule</small>"]:::det
+  find["findings.py"]:::det
+  plan["plan.py<br/><small>and what it refuses</small>"]:::det
+  gen["generate.py<br/><small>DDL, schema, loader</small>"]:::det
+  explain["explain.py"]:::model
+  vision["vision.py"]:::model
+  cli["cli.py"]:::data
+
+  copybook --> layout
+  decode --> layout
+  probe --> decode
+  probe --> layout
+  pred --> probe
+  find --> pred
+  plan --> layout
+  gen --> plan
+  explain --> pred
+  vision --> copybook
+  cli --> find
+  cli --> gen
+  cli --> explain
+  cli --> vision
+
+  classDef det   fill:#DDEFE7,stroke:#1E7A5B,color:#123C2D;
+  classDef model fill:#F6E9D2,stroke:#A9711A,color:#4A3208;
+  classDef data  fill:#E4EEF3,stroke:#2F6F8F,color:#12333F;

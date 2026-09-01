@@ -1,0 +1,27 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"IBM Plex Sans, system-ui, sans-serif","lineColor":"#6B7885","edgeLabelBackground":"#FFFFFF","primaryTextColor":"#17212B"}}}%%
+flowchart LR
+  subgraph PY["Python — src/overpunch/"]
+    P1["copybook.py"]:::det
+    P2["probe.py + findings.py"]:::det
+    P3["generate.py"]:::det
+  end
+  subgraph JS["JavaScript — page/"]
+    J1["cobol.js"]:::det
+    J2["scan.js"]:::det
+    J3["ddl.js"]:::det
+  end
+  V{"verify_js.js<br/><small>same files, same bytes</small>"}:::det
+  AGREE["agree<br/><small>lengths, offsets, codes,<br/>severities, money to the cent</small>"]:::det
+  FAIL["one of them is wrong"]:::bad
+
+  P1 --> V
+  P2 --> V
+  P3 --> V
+  J1 --> V
+  J2 --> V
+  J3 --> V
+  V -- "0 differences" --> AGREE
+  V -- "any difference" --> FAIL
+
+  classDef det fill:#DDEFE7,stroke:#1E7A5B,color:#123C2D;
+  classDef bad fill:#F6DEDC,stroke:#A5322C,color:#4A1614;

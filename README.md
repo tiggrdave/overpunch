@@ -198,6 +198,17 @@ as NULL in a format that has no NULL; and whether `COMP-1` is IBM hexadecimal or
 IEEE, which **nothing in the bytes distinguishes** — so the default is written
 onto the column it affects.
 
+## Diagrams
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — seven diagrams, each carrying a
+claim that is hard to make in a paragraph: the deterministic core and its
+arithmetic gate, the propose/adjudicate split, the read-until-proved loop for
+scanned copybooks, why nothing is generated straight from a copybook, where the
+sign actually lives, the two implementations and the bridge between them, and
+the module graph.
+
+They render natively on GitHub. Rendered PNGs are in `docs/diagrams/` for slides.
+
 ## The sample corpus
 
 ```bash
