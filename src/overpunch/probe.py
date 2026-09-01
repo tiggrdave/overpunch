@@ -11,8 +11,9 @@ from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
-from .decode import (DecodeError, decode_display, decode_display_naive,
-                     decode_packed, decode_text, split_overpunch, zone_sign)
+from .decode import (DecodeError, decode_binary, decode_display,
+                     decode_display_naive, decode_packed, decode_text,
+                     split_overpunch, zone_sign)
 from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
@@ -121,6 +122,8 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
             st.sum_correct += decode_packed(raw, pic.scale)
         return
     if fld.usage is Usage.COMP:
+        value = Decimal(decode_binary(raw, signed=pic.signed))
+        st.sum_correct += value.scaleb(-pic.scale) if pic.scale else value
         return
 
     # the sign is in the byte's zone nibble, which every EBCDIC page shares -

@@ -840,6 +840,21 @@ function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
    negative - which every EBCDIC page shares. The character it decodes to does
    not: 0xD0 is '}' in cp037, 'ü' in cp273, 'ğ' in cp1026. Reading the sign from
    text works on US data and silently loses German negatives. */
+/* COMP-3: two digits per byte, sign in the low nibble of the last one. The
+   scanner used to check only that the nibbles were valid and never read the
+   value, so scaled packed money reported a total of zero. */
+function decodePacked(bytes, off, len, scale){
+  var digits = "", sign = 1;
+  for(var i = 0; i < len; i++){
+    var b = bytes[off + i], hi = b >> 4, lo = b & 15;
+    digits += String(hi);
+    if(i === len - 1) sign = (lo === 0x0B || lo === 0x0D) ? -1 : 1;
+    else digits += String(lo);
+  }
+  var v = parseInt(digits || "0", 10) * sign;
+  return scale ? v / Math.pow(10, scale) : v;
+}
+
 function zoneSign(byte){
   var zone = byte >> 4, digit = byte & 15;
   if((zone === 0x0C || zone === 0x0D) && digit <= 9)
@@ -867,6 +882,15 @@ function observe(st, f, bytes, off){
     var lo = bytes[off+f.offset+len-1] & 15;
     if(lo !== 12 && lo !== 13 && lo !== 15) bad = true;
     if(bad) st.invalidPacked++;
+    else st.sumCorrect += decodePacked(bytes, off + f.offset, len, f.pic.scale || 0);
+    return;
+  }
+  if(f.usage === "COMP"){
+    var v = 0;
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[off + f.offset + k];
+    if(f.pic.signed && (bytes[off + f.offset] & 0x80))
+      v -= Math.pow(2, 8 * len);
+    st.sumCorrect += f.pic.scale ? v / Math.pow(10, f.pic.scale) : v;
     return;
   }
   if(f.usage !== "DISPLAY") return;
