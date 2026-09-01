@@ -125,6 +125,79 @@ Run `overpunch explain --save-prompt p.txt` to read exactly what would be sent
 before sending it, or `--hypotheses file.json` to replay a saved reply and skip
 the network entirely.
 
+## Why a model has to be challenged
+
+Every other component in a system fails loudly. A disk returns an error, a parser
+raises, a network call times out — you learn something from the failure itself. A
+model does not do that. **Its failure mode is a confident, well-formed, plausible
+answer**, which at the point of use is indistinguishable from a correct one.
+
+That property invalidates most of how trust is normally established. You cannot
+use the model's own confidence, because it is not correlated with correctness.
+You cannot use a second model as the judge, because it shares the failure modes
+of the first — that is checking eyes with eyes.
+
+So the question becomes: what do you have that the model does not influence?
+Usually something duller than a model and far more reliable. Here it is
+arithmetic:
+
+- the field widths must sum to the record length printed on the page
+- the data file must divide by that length exactly
+- a proposed key must be unique across every record
+- a proposed discriminator must make its branch fit the records it claims better
+  than the records it does not
+
+None of those are clever. All of them are decisive, and none can be talked around.
+
+### A check is only worth having if it could have failed
+
+This is the part that gets skipped. A check that has never rejected anything
+proves it EXECUTES, not that it CATCHES — and that caught me four separate times
+while building this:
+
+- the cross-check between the two implementations compared findings but never
+  record counts, so a browser that read **zero** records agreed with a Python that
+  read thirty; both produce an empty finding list
+- the branch adjudicator compared the wrong axis and **rejected the correct
+  answer**
+- twice a rehearsal reported success when the fault it was meant to plant had
+  never actually been written to the file
+
+Every one of those ran, passed, and told me nothing. The fix is not more checks;
+it is requiring each check to fail on demand.
+
+### The evidence is not theoretical
+
+`nemotron-parse` read the same scanned copybook six times and got it right four.
+**Both wrong readings parsed as valid COBOL with a sensible field list** — nothing
+about their shape gave them away; only the arithmetic did.
+
+`nemotron-3-super`, given byte-identical input twice, returned eight proposals and
+then five, and the five omitted the single most expensive defect in the file.
+
+It also found a real bug in *this* code: it kept puzzling over a
+`distinct_values: 0` that turned out to be a figure reported for numeric fields
+and never measured for them. A false zero, not a missing one. Challenging a model
+productively means being willing to lose the argument.
+
+### The payoff is usefulness, not safety
+
+Because every proposal is adjudicated, the same machinery measures models instead
+of praising them. `overpunch benchmark` scores them against what the deterministic
+pass finds on its own: Nemotron 3 Super reaches **100% precision and 53% recall**
+on this task, while the 550B Ultra is no better and three times slower. You can
+only benchmark what you can mark.
+
+Which inverts the usual anxiety. **An unreliable component plus a decisive check
+is a reliable system** — the same trade as a checksum or a retransmit. Once the
+check is cheap and conclusive you can re-read until a result is proved and report
+how many attempts it took, which is exactly what `read-scan --attempts` does.
+
+The honest boundary: not everything is checkable. The model's plain-English
+reading of what a field *means* is useful and unverifiable. It is shown and
+labelled `advisory, not tested`, because the alternative is laundering an opinion
+into a finding — and a system that does that once cannot be trusted anywhere else.
+
 ## Install
 
 ```bash
