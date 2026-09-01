@@ -1,0 +1,72 @@
+<div class="tool">
+  <aside class="side">
+    <div class="brand">
+      <div class="eyebrow">overpunch</div>
+      <h1>Inspector</h1>
+      <p>Read a mainframe extract from its copybook. Nothing is uploaded —
+      this runs in your browser.</p>
+      <a class="back" href="./">← the demo and the story behind it</a>
+    </div>
+
+    <div class="drop" id="drop-cpy">
+      <label for="in-cpy">Copybook (required)</label>
+      <input type="file" id="in-cpy" accept=".cpy,.cbl,.cob,.txt,text/plain">
+      <div class="fname" id="name-cpy"></div>
+      <button class="clearone" id="clear-cpy" hidden>remove</button>
+    </div>
+
+    <div class="drop" id="drop-dat">
+      <label for="in-dat">Data file (optional)</label>
+      <input type="file" id="in-dat">
+      <div class="fname" id="name-dat"></div>
+      <button class="clearone" id="clear-dat" hidden>remove</button>
+    </div>
+
+    <div class="opt">
+      <label for="in-enc">Code page</label>
+      <select id="in-enc">
+        <option value="cp037">cp037 — US/Canada EBCDIC</option>
+        <option value="cp500">cp500 — International EBCDIC</option>
+        <option value="cp273">cp273 — German/Austrian</option>
+        <option value="cp1026">cp1026 — Turkish</option>
+        <option value="cp1140">cp1140 — cp037 with euro</option>
+        <option value="latin1">latin-1 — plain ASCII/ANSI</option>
+      </select>
+    </div>
+
+    <div class="opt">
+      <label for="in-reclen">Record length</label>
+      <input type="number" id="in-reclen" min="1" placeholder="from the copybook">
+      <div class="hint">Set this when the copybook is only a view of a longer
+      record.</div>
+    </div>
+
+    <div class="opt" id="recordpick" hidden>
+      <label for="in-record">Record</label>
+      <select id="in-record"></select>
+      <div class="hint">This copybook declares more than one.</div>
+    </div>
+
+    <div class="acts">
+      <button id="run-analyze" class="primary">Analyse</button>
+      <button id="run-clear">Clear both</button>
+    </div>
+    <button id="run-sample" class="wide">Load a sample (German, cp273)</button>
+    <div class="rmsg" id="run-msg"></div>
+  </aside>
+
+  <main class="pane">
+    <div class="tabs" id="tabs">
+      <button data-tab="layout" aria-pressed="true">Layout<span class="badge" id="b-layout"></span></button>
+      <button data-tab="findings" aria-pressed="false">Findings<span class="badge" id="b-findings"></span></button>
+      <button data-tab="records" aria-pressed="false">Records<span class="badge" id="b-records"></span></button>
+      <button data-tab="schema" aria-pressed="false">Schema</button>
+    </div>
+    <div class="body">
+      <div id="tab-layout"></div>
+      <div id="tab-findings" hidden></div>
+      <div id="tab-records" hidden></div>
+      <div id="tab-schema" hidden></div>
+    </div>
+  </main>
+</div>

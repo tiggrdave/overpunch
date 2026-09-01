@@ -130,12 +130,30 @@ def main() -> None:
                         "len": f.total_size(), "usage": f.usage.value}
                        for f in lay.elementary_fields()]})
 
+    # every field in the repository, with the type and identifier the Python
+    # side gives it, so the browser's copy of that mapping can be held to it
+    from overpunch.plan import normalise as _norm, sql_type, DEFAULT_POLICIES
+    import glob as _glob
+    types, type_sources = [], {}
+    for cpy in sorted(_glob.glob(str(ROOT / "demo" / "*.cpy")) +
+                      _glob.glob(str(ROOT / "demo" / "carddemo" / "*.cpy")) +
+                      _glob.glob(str(ROOT / "samples" / "data" / "*.cpy"))):
+        lay = parse_file(cpy)
+        type_sources[Path(cpy).name] = Path(cpy).read_text(errors="replace")
+        for f in lay.elementary_fields():
+            t, _note = sql_type(f, DEFAULT_POLICIES)
+            types.append({"copybook": Path(cpy).name, "field": f.name,
+                          "ident": _norm(f.name), "type": t})
+    out["types"] = types
+    out["type_sources"] = type_sources
+
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))
     print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases")
     for c in out["cases"]:
         print(f"  {c['name']:<16} {c['record_len']:>4}B  "
               f"{len(c['fields']):>2} fields  {len(c['findings']):>2} findings")
+    print(f"  {len(out['types'])} field type mappings")
     for c in out["dialects"]:
         print(f"  dialect {c['name']:<32} {c['record_len']:>4}B  "
               f"{len(c['fields'])} fields")

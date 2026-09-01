@@ -307,6 +307,28 @@ function findings(layout, res){
   return out;
 }
 
+/* One field, decoded the way the tool would decode it, rendered for a table. */
+function readValue(f, bytes, off){
+  var len = fieldLen(f), at = off + f.offset;
+  if(f.usage === "COMP-1" || f.usage === "COMP-2")
+    return String(Math.round(decodeHexFloat(bytes, at, len) * 1e6) / 1e6);
+  if(!f.pic) return text(bytes, at, len);
+  if(f.usage === "COMP-3") return String(decodePacked(bytes, at, len, f.pic.scale || 0));
+  if(f.usage === "COMP"){
+    var v = 0;
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[at + k];
+    if(f.pic.signed && (bytes[at] & 0x80)) v -= Math.pow(2, 8 * len);
+    return String(f.pic.scale ? v / Math.pow(10, f.pic.scale) : v);
+  }
+  var t = text(bytes, at, len);
+  if(!f.pic.numeric) return t.replace(/[\u0000\s]+$/, "");
+  var zoned = zoneSign(bytes[at + len - 1]);
+  var sp = zoned ? {d: t.slice(0, -1) + zoned.d, s: zoned.s} : splitSign(t);
+  var digits = digitsOf(sp.d), div = Math.pow(10, f.pic.scale || 0);
+  var v2 = (f.pic.signed ? sp.s : 1) * parseInt(digits, 10) / div;
+  return f.pic.scale ? v2.toFixed(f.pic.scale) : String(v2);
+}
+
 return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign,
-        text:text, recordOffsets:recordOffsets};
+        text:text, recordOffsets:recordOffsets, readValue:readValue};
 })();

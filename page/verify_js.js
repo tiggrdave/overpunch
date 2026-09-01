@@ -18,7 +18,9 @@ vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(here, "cobol.js"), "utf8"), sandbox);
 vm.runInContext(fs.readFileSync(path.join(here, "scan.js"), "utf8"), sandbox);
 vm.runInContext(fs.readFileSync(path.join(here, "ddl.js"), "utf8"), sandbox);
-const COBOL = sandbox.COBOL, SCAN = sandbox.SCAN, DDL = sandbox.DDL;
+vm.runInContext(fs.readFileSync(path.join(here, "plan.js"), "utf8"), sandbox);
+const COBOL = sandbox.COBOL, SCAN = sandbox.SCAN, DDL = sandbox.DDL,
+      PLAN = sandbox.PLAN;
 
 const refPath = path.join(here, "reference.json");
 if (!fs.existsSync(refPath)) {
@@ -81,6 +83,30 @@ for (const c of ref.cases) {
   }
 }
 
+let typesCompared = 0;
+{
+  const byBook = new Map();
+  for (const t of ref.types || []) {
+    if (!byBook.has(t.copybook)) byBook.set(t.copybook, []);
+    byBook.get(t.copybook).push(t);
+  }
+  const source = new Map(Object.entries(ref.type_sources || {}));
+  for (const [book, expected] of byBook) {
+    const text = source.get(book);
+    if (!text) continue;                       // only the ones we have source for
+    const lay = COBOL.parse(text);
+    for (let i = 0; i < Math.min(lay.fields.length, expected.length); i++) {
+      const f = lay.fields[i], e = expected[i];
+      typesCompared++;
+      if (PLAN.sqlType(f, true) !== e.type || PLAN.normalise(f.name) !== e.ident) {
+        console.log(`  type ${book}.${f.name}: JS ${PLAN.sqlType(f, true)}/` +
+                    `${PLAN.normalise(f.name)} != PY ${e.type}/${e.ident}`);
+        failures++;
+      }
+    }
+  }
+}
+
 let dialectsCompared = 0;
 for (const d of ref.dialects || []) {
   dialectsCompared++;
@@ -125,7 +151,7 @@ for (const c of ref.ddl_cases || []) {
 
 console.log(`\n${ref.cases.length} files, ${comparedFields} fields, ` +
             `${comparedFindings} findings, ${ddlCompared} DDL renderings, ` +
-            `${dialectsCompared} dialects compared, ` +
+            `${dialectsCompared} dialects, ${typesCompared} types compared, ` +
             `${failures} disagreement(s)`);
 if (failures) { console.log(">>> the two implementations DISAGREE"); process.exit(1); }
 console.log(">>> browser and Python implementations agree");

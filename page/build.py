@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -234,6 +235,67 @@ def build_payload() -> dict:
     }
 
 
+INSPECT_SKELETON = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Read an IBM mainframe fixed-width extract \
+from its COBOL copybook, entirely in your browser. Nothing is uploaded.">
+<title>Inspect a Copybook</title>
+{head}
+<style>
+html{{-webkit-text-size-adjust:100%}}
+body{{margin:0}}
+img{{max-width:100%}}
+[hidden]{{display:none!important}}
+</style>
+</head>
+<body>
+{body}
+{script}
+</body>
+</html>
+"""
+
+
+def build_inspect(here: Path, head_css: str) -> None:
+    """The tool, on its own page.
+
+    The demo page is an argument, read top to bottom by someone who has never
+    seen a copybook. This is the thing you point at a file. They want opposite
+    layouts, and one page cannot be both without being worse at each - so the
+    tool gets a sidebar, tabs, and none of the demo's embedded data, which is
+    most of its 296 KB.
+    """
+    payload = {
+        "encodings": {name: "".join(bytes([i]).decode(codec) for i in range(256))
+                      for name, codec in (("cp037", "cp037"), ("cp500", "cp500"),
+                                          ("cp273", "cp273"), ("cp1026", "cp1026"),
+                                          ("cp1140", "cp1140"), ("latin1", "latin-1"))},
+        "sample_de": german_sample(),
+    }
+    # head.part opens with the demo page's own <title>; this page has its own
+    head_css = re.sub(r"<title>.*?</title>\s*", "", head_css, count=1, flags=re.S)
+    head = head_css + (here / "inspect.css").read_text() + "</style>"
+    libs = "".join(f"<script>\n{(here / n).read_text()}</script>\n"
+                   for n in ("cobol.js", "scan.js", "ddl.js", "plan.js"))
+    blob = json.dumps(payload, separators=(",", ":"))
+    if "</script" in blob:
+        raise SystemExit("payload would terminate its own script tag")
+    script = (libs
+              + f'<script id="payload" type="application/json">{blob}</script>\n'
+              + f"<script>\n{(here / 'inspect.js').read_text()}</script>")
+    page = INSPECT_SKELETON.format(head=head, body=(here / "inspect.html").read_text(),
+                                   script=script)
+    if str(ROOT) in page or "/home/" in page:
+        raise SystemExit("refusing to write a page containing an absolute local path")
+    out = ROOT / "docs" / "inspect.html"
+    out.write_text(page)
+    print(f"wrote {out.relative_to(ROOT)}  ({out.stat().st_size:,} bytes)")
+
+
 SKELETON = """<!doctype html>
 <html lang="en">
 <head>
@@ -305,6 +367,7 @@ def main() -> None:
                          f"{line} - write it as an escape, not as the character")
     out = ROOT / "docs" / "index.html"
     out.write_text(page)
+    build_inspect(here, head[:head.rindex("</style>")])
     (ROOT / "docs" / ".nojekyll").write_text("")
     print(f"wrote {out.relative_to(ROOT)}  ({out.stat().st_size:,} bytes)")
     print(f"  {len(payload['records'])} records, {len(payload['findings'])} findings, "

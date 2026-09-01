@@ -6,6 +6,11 @@
   one field ends and the next begins, whether a number is negative, or where its decimal point
   belongs. All of that lives in a separate document — and when the two disagree, the load still
   succeeds and the numbers are still wrong.</p>
+  <p class="sub" style="margin-top:14px">
+    <a href="./inspect.html" style="color:var(--steel);font-weight:500">
+      Open the inspector &rarr;</a>
+    &nbsp; to run this against a copybook of your own.
+  </p>
   <div class="meta">
     <span><b>Layout</b> UTLBILL.cpy (synthetic)</span>
     <span><b>Records</b> 100,000</span>

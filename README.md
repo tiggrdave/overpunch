@@ -482,6 +482,21 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
 
+## Two pages, because there are two jobs
+
+- **[the demo](https://tiggrdave.github.io/overpunch/)** — the argument, read top
+  to bottom: what goes wrong, what it costs, a byte inspector, a scanned copybook,
+  the plan that refuses. Linear, because that is how someone meets this for the
+  first time.
+- **[the inspector](https://tiggrdave.github.io/overpunch/inspect.html)** — the
+  tool. Sidebar for the copybook, the data file, the code page and the record
+  length; tabs for Layout, Findings, Records and Schema. **84 KB against the
+  demo's 302 KB**, because it carries none of the demo's embedded data.
+
+They wanted opposite layouts and one page was making both worse. Splitting them
+came out of using the thing: getting to the uploader meant scrolling past ten
+screens of essay every time.
+
 ## The page
 
 `docs/index.html` is a browsable version of all of this: the copybook, a hex dump

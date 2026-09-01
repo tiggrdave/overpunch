@@ -320,6 +320,11 @@ img{max-width:100%}
   one field ends and the next begins, whether a number is negative, or where its decimal point
   belongs. All of that lives in a separate document — and when the two disagree, the load still
   succeeds and the numbers are still wrong.</p>
+  <p class="sub" style="margin-top:14px">
+    <a href="./inspect.html" style="color:var(--steel);font-weight:500">
+      Open the inspector &rarr;</a>
+    &nbsp; to run this against a copybook of your own.
+  </p>
   <div class="meta">
     <span><b>Layout</b> UTLBILL.cpy (synthetic)</span>
     <span><b>Records</b> 100,000</span>
@@ -759,10 +764,14 @@ function size(f){
   return total;
 }
 
-function parse(text){
+function parse(text){ return parseRecords(text)[0]; }
+
+/* An 01 is a record boundary, not a continuation. A copybook may declare
+   several records - 72 of 885 in one real library do, one of them 24. */
+function parseRecords(text){
   checkTruncation(text);
   var fmt = detectFormat(text), fragment = false;
-  var root=null, stack=[], lastElem=null;
+  var roots=[], root=null, stack=[], lastElem=null;
   statements(text, fmt).forEach(function(stmt){
     var tok = tokens(stmt);
     if(!tok.length || !/^\d+$/.test(tok[0])) return;
@@ -814,14 +823,19 @@ function parse(text){
       idx++;
     }
 
+    if(level === 1){
+      root = f; roots.push(f); stack = [f];
+      if(f.pic) lastElem = f;
+      return;
+    }
     if(root === null){
-      if(level === 1){ root = f; stack = [f]; if(f.pic) lastElem = f; return; }
       // a fragment: fields meant to be COPY'd into a record declared elsewhere
       fragment = true;
       root = {level:0, name:"<fragment>", pic:null, usage:"DISPLAY", occurs:1,
               occursDependingOn:null, redefines:null, redefinesExternal:false,
-              signSeparate:false, signLeading:false, conditions:{}, children:[],
-              offset:0, parent:null};
+              signSeparate:false, signLeading:false, conditions:{},
+              conditionRanges:{}, children:[], offset:0, parent:null};
+      roots.push(root);
       stack = [root];
       root.children.push(f); stack.push(f);
       if(f.pic) lastElem = f;
@@ -834,8 +848,10 @@ function parse(text){
     }
     if(f.pic) lastElem = f;
   });
-  if(root === null) throw new Error("no 01-level record found");
+  if(!roots.length) throw new Error("no record definition found: no 01 level "+
+    "and no fields to make a record from");
 
+  function finish(root){
   function find(node, want){
     if(node.name.toUpperCase() === want.toUpperCase()) return node;
     for(var i=0;i<node.children.length;i++){
@@ -882,11 +898,16 @@ function parse(text){
     throw new Error("field offsets reach byte "+reach+" but the record is "+
                     recordLen+" bytes; the layout disagrees with itself");
 
-  return {root:root, recordLen:recordLen, fields:leaves, isFragment:fragment,
+  return {root:root, recordLen:recordLen, fields:leaves,
+          isFragment:fragment && root.level === 0,
           find:function(n){return find(root,n);}, size:size};
+  }
+
+  return roots.map(finish);
 }
 
-return {parse: parse, parsePicture: parsePicture, statements: statements,
+return {parse: parse, parseRecords: parseRecords,
+        parsePicture: parsePicture, statements: statements,
         elementarySize: elementarySize, size: size,
         detectFormat: detectFormat, terminator: terminator};
 })();
@@ -1201,8 +1222,30 @@ function findings(layout, res){
   return out;
 }
 
+/* One field, decoded the way the tool would decode it, rendered for a table. */
+function readValue(f, bytes, off){
+  var len = fieldLen(f), at = off + f.offset;
+  if(f.usage === "COMP-1" || f.usage === "COMP-2")
+    return String(Math.round(decodeHexFloat(bytes, at, len) * 1e6) / 1e6);
+  if(!f.pic) return text(bytes, at, len);
+  if(f.usage === "COMP-3") return String(decodePacked(bytes, at, len, f.pic.scale || 0));
+  if(f.usage === "COMP"){
+    var v = 0;
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[at + k];
+    if(f.pic.signed && (bytes[at] & 0x80)) v -= Math.pow(2, 8 * len);
+    return String(f.pic.scale ? v / Math.pow(10, f.pic.scale) : v);
+  }
+  var t = text(bytes, at, len);
+  if(!f.pic.numeric) return t.replace(/[\u0000\s]+$/, "");
+  var zoned = zoneSign(bytes[at + len - 1]);
+  var sp = zoned ? {d: t.slice(0, -1) + zoned.d, s: zoned.s} : splitSign(t);
+  var digits = digitsOf(sp.d), div = Math.pow(10, f.pic.scale || 0);
+  var v2 = (f.pic.signed ? sp.s : 1) * parseInt(digits, 10) / div;
+  return f.pic.scale ? v2.toFixed(f.pic.scale) : String(v2);
+}
+
 return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign,
-        text:text, recordOffsets:recordOffsets};
+        text:text, recordOffsets:recordOffsets, readValue:readValue};
 })();
 </script>
 <script>

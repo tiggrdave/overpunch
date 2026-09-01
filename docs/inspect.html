@@ -1,0 +1,1510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Read an IBM mainframe fixed-width extract from its COBOL copybook, entirely in your browser. Nothing is uploaded.">
+<title>Inspect a Copybook</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#F7F6F3; --surface:#FFFFFF; --sunken:#EFEEEA;
+  --ink:#17212B; --ink-2:#4A5765; --ink-3:#78838F;
+  --rule:#DCDAD4; --rule-2:#C6C4BD;
+  --steel:#2F6F8F; --steel-soft:#E4EEF3;
+  --oxide:#B3341F; --oxide-soft:#F7E4E0;
+  --moss:#3E6B4F; --moss-soft:#E4EDE7;
+  --ochre:#9A6B1F; --ochre-soft:#F5EBD9;
+  --shadow:0 1px 2px rgba(23,33,43,.06),0 4px 14px rgba(23,33,43,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#12171C; --surface:#1A2027; --sunken:#141A20;
+    --ink:#E6E9EC; --ink-2:#A3AEB9; --ink-3:#77838F;
+    --rule:#2A333C; --rule-2:#3A454F;
+    --steel:#79B4D0; --steel-soft:#1B2B34;
+    --oxide:#E8836C; --oxide-soft:#33201C;
+    --moss:#89BC9B; --moss-soft:#1B2922;
+    --ochre:#D9AC63; --ochre-soft:#2C2417;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12171C; --surface:#1A2027; --sunken:#141A20;
+  --ink:#E6E9EC; --ink-2:#A3AEB9; --ink-3:#77838F;
+  --rule:#2A333C; --rule-2:#3A454F;
+  --steel:#79B4D0; --steel-soft:#1B2B34;
+  --oxide:#E8836C; --oxide-soft:#33201C;
+  --moss:#89BC9B; --moss-soft:#1B2922;
+  --ochre:#D9AC63; --ochre-soft:#2C2417;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.58}
+.wrap{max-width:1140px;margin:0 auto;padding:34px 22px 80px}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(30px,4.4vw,44px);font-weight:700;line-height:1.06}
+h2{font-size:21px;font-weight:600;margin-bottom:4px}
+h3{font-size:15px;font-weight:600}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:500}
+header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:30px}
+.sub{color:var(--ink-2);max-width:66ch;margin-top:10px;font-size:16.5px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:14px;font-size:12.5px;color:var(--ink-3)}
+.meta b{color:var(--ink-2);font-weight:500}
+section{margin-top:44px}
+.shead{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:18px}
+.shead p{margin:0;color:var(--ink-2);font-size:13.5px;max-width:64ch}
+p.lede{color:var(--ink-2);max-width:70ch;margin:0 0 16px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:17px 19px;box-shadow:var(--shadow)}
+.card .step{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--steel);font-weight:600;display:block;margin-bottom:7px}
+.card p{margin:7px 0 0;font-size:14px;color:var(--ink-2)}
+.card.alarm .step{color:var(--oxide)}
+
+.tile{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--rule-2)}
+.tile.good::before{background:var(--moss)} .tile.bad::before{background:var(--oxide)}
+.tile.warn::before{background:var(--ochre)}
+.tile .lab{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;font-family:"IBM Plex Mono",monospace}
+.tile .val{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:clamp(19px,2.5vw,25px);font-weight:600;margin-top:7px;letter-spacing:-.02em}
+.tile.good .val{color:var(--moss)} .tile.bad .val{color:var(--oxide)} .tile.warn .val{color:var(--ochre)}
+.tile .note{font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.swing{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+
+.files{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.files{grid-template-columns:1fr}}
+/* On a wide screen the two files stop splitting the column 50/50: the copybook
+   takes the width its longest line needs, the hex dump takes the rest, and the
+   pair breaks out of the reading column so neither has to scroll. The reading
+   column stays narrow for prose. */
+@media(min-width:1240px){
+  .files{
+    grid-template-columns:fit-content(660px) minmax(0,1fr);
+    width:min(1560px,calc(100vw - 44px));
+    margin-left:calc(548px - min(1560px,calc(100vw - 44px))/2);
+  }
+  .files .cbook,.files .dump{max-height:520px}
+}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;box-shadow:var(--shadow)}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;
+  border-bottom:1px solid var(--rule);background:var(--sunken)}
+.bar .ttl{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600}
+.bar .sml{font-size:12px;color:var(--ink-3)}
+button{font:inherit;font-size:13px;background:var(--surface);color:var(--ink);
+  border:1px solid var(--rule-2);border-radius:2px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--steel);color:var(--steel)}
+button:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--steel);border-color:var(--steel);color:#fff}
+:root[data-theme="dark"] button[aria-pressed="true"],
+:root:not([data-theme="light"]) button[aria-pressed="true"]{color:#0F1418}
+.spacer{flex:1}
+
+.cbook{font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1.75;
+  padding:12px 0;max-height:430px;overflow:auto}
+.cbl{display:flex;gap:12px;padding:0 14px;white-space:pre;cursor:default}
+.cbl .ln{color:var(--ink-3);opacity:.7;user-select:none;min-width:2ch;text-align:right}
+.cbl.pick{cursor:pointer}
+.cbl.pick:hover{background:var(--steel-soft)}
+.cbl.sel{background:var(--steel-soft);box-shadow:inset 3px 0 0 var(--steel)}
+.cbl.cmt{color:var(--ink-3);font-style:italic}
+.cbl .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--oxide);background:var(--oxide-soft);padding:0 5px;border-radius:2px;align-self:center}
+
+.dump{font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.65;
+  padding:10px 0;max-height:430px;overflow:auto}
+.drec{padding:6px 14px 2px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);border-top:1px solid var(--rule);margin-top:4px}
+.drec:first-child{border-top:0;margin-top:0}
+.drow{display:flex;gap:12px;padding:0 14px;white-space:pre}
+.drow .off{color:var(--ink-3);opacity:.75}
+.drow .hx{letter-spacing:.02em}
+.drow .gut{color:var(--steel)}
+.drow .gut.bad{color:var(--ink-3);opacity:.55}
+
+.gridwrap{overflow-x:auto;padding:16px 14px 8px}
+.ruler{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;min-width:660px;margin-bottom:3px}
+.ruler span{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-3);
+  text-align:center;letter-spacing:-.04em}
+.bytes{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;min-width:660px}
+.by{border:1px solid var(--rule);border-radius:2px;padding:3px 0 2px;text-align:center;
+  cursor:pointer;background:var(--surface);transition:transform .08s}
+.by:hover{transform:translateY(-2px)}
+.by .h{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-3);display:block;line-height:1.2}
+.by .c{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;display:block;line-height:1.25}
+.by.f0{background:var(--sunken)}
+.by.sel{border-color:var(--steel);background:var(--steel-soft)}
+.by.sign{border-color:var(--oxide);background:var(--oxide-soft)}
+.by.sign .c{color:var(--oxide);font-weight:600}
+.by.start{border-left:2px solid var(--rule-2)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px 14px;font-size:12px;color:var(--ink-2)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;
+  margin-right:5px;border:1px solid var(--rule-2)}
+.detail{border-top:1px solid var(--rule);padding:16px;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:22px}
+@media(max-width:720px){.detail{grid-template-columns:1fr}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px;align-items:baseline}
+.kv dt{color:var(--ink-3);font-size:12px;letter-spacing:.05em;text-transform:uppercase;
+  font-family:"IBM Plex Mono",monospace}
+.kv dd{margin:0;font-family:"IBM Plex Mono",monospace}
+.reads{display:flex;flex-direction:column;gap:8px}
+.read{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:9px 12px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--sunken)}
+.read.is-right{border-color:var(--moss);background:var(--moss-soft)}
+.read.is-wrong{border-color:var(--oxide);background:var(--oxide-soft)}
+.read .how{font-size:12.5px;color:var(--ink-2)}
+.read .num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:16px;font-weight:600;white-space:nowrap}
+.read.is-right .num{color:var(--moss)} .read.is-wrong .num{color:var(--oxide)}
+
+.explain{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+.ex{background:var(--surface);border:1px solid var(--rule);border-left-width:3px;
+  border-radius:3px;padding:16px 18px;box-shadow:var(--shadow)}
+.ex.right{border-left-color:var(--moss)} .ex.wrong{border-left-color:var(--oxide)}
+.ex.worse{border-left-color:var(--ochre)}
+.ex h3{margin-bottom:3px} .ex.right h3{color:var(--moss)}
+.ex.wrong h3{color:var(--oxide)} .ex.worse h3{color:var(--ochre)}
+.ex p{margin:8px 0 0;font-size:13.5px;color:var(--ink-2)}
+.ex .who{font-size:12.5px;color:var(--ink-3);margin-top:9px;font-style:italic}
+pre.code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.6;
+  background:var(--sunken);border:1px solid var(--rule);border-radius:2px;
+  padding:9px 11px;margin:11px 0 0;overflow-x:auto;color:var(--ink)}
+pre.code .cm{color:var(--ink-3)}
+
+.finds{display:flex;flex-direction:column;gap:9px}
+.find{background:var(--surface);border:1px solid var(--rule);border-left-width:3px;border-radius:3px;
+  padding:12px 15px;box-shadow:var(--shadow)}
+.find.critical{border-left-color:var(--oxide)}
+.find.warn{border-left-color:var(--ochre)}
+.find.info{border-left-color:var(--steel)}
+.fhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;border:1px solid currentColor}
+.chip.critical{color:var(--oxide);background:var(--oxide-soft)}
+.chip.warn{color:var(--ochre);background:var(--ochre-soft)}
+.chip.info{color:var(--steel);background:var(--steel-soft)}
+.chip.confirmed{color:var(--moss);background:var(--moss-soft)}
+.chip.refuted{color:var(--oxide);background:var(--oxide-soft)}
+.chip.inert{color:var(--ink-2);background:var(--sunken)}
+.chip.untestable{color:var(--ochre);background:var(--ochre-soft)}
+.fcode{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+.ffield{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-2)}
+.fclaim{margin:7px 0 0;font-size:13.5px;color:var(--ink-2);max-width:74ch}
+.fev{margin-top:7px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.fimp{margin-top:6px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink);
+  background:var(--sunken);padding:6px 9px;border-radius:2px;overflow-x:auto;white-space:nowrap}
+.adj{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:12px 15px;
+  box-shadow:var(--shadow);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 22px}
+@media(max-width:720px){.adj{grid-template-columns:1fr}}
+.adj .ahead{grid-column:1/-1;display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:5px}
+.side{font-size:13px}
+.side .slab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:2px}
+.side.said{color:var(--ink-2)}
+.side.meas{color:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.grp{display:flex;flex-direction:column;gap:9px}
+.vocab{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:11px}
+.vc{border:1px solid var(--rule);border-radius:3px;padding:11px 14px;background:var(--surface)}
+.vc dt{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600;color:var(--steel)}
+.vc dd{margin:4px 0 0;font-size:13px;color:var(--ink-2)}
+.foot{margin-top:46px;padding-top:16px;border-top:1px solid var(--rule);font-size:12.5px;
+  color:var(--ink-3);max-width:78ch}
+.foot code{font-family:"IBM Plex Mono",monospace;background:var(--sunken);padding:1px 5px;
+  border-radius:2px;color:var(--ink-2)}
+.extract{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.extract{grid-template-columns:1fr}}
+.decisions{display:flex;flex-direction:column;gap:12px}
+.dec{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--ochre);
+  border-radius:3px;padding:13px 15px;box-shadow:var(--shadow)}
+.dec.answered{border-left-color:var(--moss)}
+.dec .dk{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ochre);font-weight:600}
+.dec.answered .dk{color:var(--moss)}
+.dec .dq{font-size:13px;color:var(--ink-2);margin:6px 0 9px}
+select{font:inherit;font-size:12.5px;font-family:"IBM Plex Mono",monospace;width:100%;
+  background:var(--surface);color:var(--ink);border:1px solid var(--rule-2);
+  border-radius:2px;padding:5px 7px}
+select:focus-visible{outline:2px solid var(--steel);outline-offset:1px}
+.policy{background:var(--sunken);border:1px solid var(--rule);border-radius:3px;padding:12px 15px}
+.policy .dk{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600;display:block;margin-bottom:8px}
+.opts{display:flex;gap:7px;flex-wrap:wrap}
+.outpane{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:340px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 13px;border-bottom:1px solid var(--rule);
+  background:var(--sunken);align-items:center}
+pre.out{margin:0;padding:14px 16px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  line-height:1.6;overflow:auto;flex:1;max-height:460px;color:var(--ink);white-space:pre}
+pre.out.refused{color:var(--oxide);background:var(--oxide-soft)}
+.outnote{padding:9px 16px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-2)}
+.uploader{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);padding:18px}
+.privacy{display:flex;gap:11px;align-items:flex-start;background:var(--moss-soft);
+  border:1px solid var(--moss);border-radius:3px;padding:12px 15px;margin-bottom:16px}
+.privacy .pk{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--moss);font-weight:600;white-space:nowrap}
+.privacy p{margin:0;font-size:13.5px;color:var(--ink-2)}
+.drops{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.drop{border:1px dashed var(--rule-2);border-radius:3px;padding:14px;background:var(--sunken)}
+.drop.filled{border-style:solid;border-color:var(--steel);background:var(--steel-soft)}
+.drop label{display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+  margin-bottom:7px}
+.drop input[type=file]{font:inherit;font-size:12px;width:100%;color:var(--ink-2)}
+.drop .fname{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--steel);
+  margin-top:7px;word-break:break-all}
+.runrow{display:flex;gap:11px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.result{margin-top:16px;border-top:1px solid var(--rule);padding-top:16px}
+.rmsg{font-size:13.5px;color:var(--ink-2)}
+.rmsg.bad{color:var(--oxide)}
+table.layout{border-collapse:collapse;width:100%;font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;margin-top:10px}
+table.layout th{text-align:left;font-weight:600;color:var(--ink-3);font-size:10.5px;
+  letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid var(--rule);
+  padding:5px 9px 5px 0}
+table.layout td{padding:3px 9px 3px 0;border-bottom:1px solid var(--rule);
+  font-variant-numeric:tabular-nums}
+table.layout td.n{text-align:right}
+.scroller{max-height:300px;overflow:auto}
+.dec .hint{font-size:12px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+
+.clearone{margin-top:8px;font-size:11.5px;padding:3px 8px;
+  border-color:var(--rule);color:var(--ink-3)}
+.clearone:hover{border-color:var(--oxide);color:var(--oxide)}
+.drop.filled .fname{font-weight:500}
+.stale{border-color:var(--ochre)!important;background:var(--ochre-soft)!important}
+.stale .fname{color:var(--ochre)}
+.visionwrap{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:20px;
+  align-items:start}
+@media(max-width:900px){.visionwrap{grid-template-columns:1fr}}
+.scanfig{margin:0}
+.scanfig img{width:100%;border:1px solid var(--rule-2);border-radius:3px;
+  box-shadow:var(--shadow);display:block;background:#fff}
+.scanfig figcaption{font-size:12.5px;color:var(--ink-3);margin-top:9px;line-height:1.5}
+.vcheck{display:flex;gap:10px;align-items:baseline;font-size:13px;padding:3px 0}
+.vcheck .vm{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;
+  letter-spacing:.07em;padding:1px 6px;border-radius:2px;border:1px solid currentColor}
+.vcheck.ok .vm{color:var(--moss);background:var(--moss-soft)}
+.vcheck.no .vm{color:var(--oxide);background:var(--oxide-soft)}
+.vcheck .vn{flex:1}
+.vcheck .vd{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3)}
+.vverdict{margin-top:9px;padding-top:9px;border-top:1px solid var(--rule);font-size:13px}
+.vverdict.ok{color:var(--moss)} .vverdict.no{color:var(--oxide)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.tool{display:grid;grid-template-columns:320px minmax(0,1fr);min-height:100vh;
+  max-width:none;margin:0}
+@media(max-width:820px){.tool{grid-template-columns:1fr}}
+.side{border-right:1px solid var(--rule);background:var(--surface);
+  padding:22px 20px;display:flex;flex-direction:column;gap:16px;
+  position:sticky;top:0;align-self:start;max-height:100vh;overflow:auto}
+.side h1{font-size:26px;margin:2px 0 0}
+.side .brand p{font-size:13px;color:var(--ink-2);margin:9px 0 0;line-height:1.5}
+.side .back{display:inline-block;margin-top:10px;font-size:12.5px;color:var(--steel);
+  text-decoration:none;border-bottom:1px solid transparent}
+.side .back:hover{border-bottom-color:var(--steel)}
+.side .drop{border:1px dashed var(--rule-2);border-radius:3px;padding:12px;
+  background:var(--sunken)}
+.side .drop.filled{border-style:solid;border-color:var(--steel);background:var(--steel-soft)}
+.side .drop.stale{border-color:var(--ochre);background:var(--ochre-soft)}
+.side label{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+  margin-bottom:6px}
+.side input[type=file]{font:inherit;font-size:11.5px;width:100%;color:var(--ink-2)}
+.side input[type=number],.side select{font:inherit;font-size:12.5px;width:100%;
+  padding:5px 7px;border:1px solid var(--rule-2);border-radius:2px;
+  background:var(--surface);color:var(--ink)}
+.side .fname{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--steel);
+  margin-top:6px;word-break:break-all}
+.side .hint{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.45}
+.acts{display:flex;gap:8px}
+button.primary{background:var(--steel);border-color:var(--steel);color:#fff;font-weight:500}
+:root[data-theme="dark"] button.primary,
+:root:not([data-theme="light"]) button.primary{color:#0F1418}
+button.wide{width:100%}
+.rmsg{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.rmsg.bad{color:var(--oxide)}
+
+.pane{display:flex;flex-direction:column;min-width:0}
+.pane .tabs{display:flex;gap:4px;padding:12px 20px 0;border-bottom:1px solid var(--rule);
+  background:var(--paper);position:sticky;top:0;z-index:2}
+.pane .tabs button{border:1px solid transparent;border-bottom:none;border-radius:3px 3px 0 0;
+  padding:8px 14px;background:transparent;color:var(--ink-2);font-size:13.5px}
+.pane .tabs button[aria-pressed="true"]{background:var(--surface);color:var(--ink);
+  border-color:var(--rule);margin-bottom:-1px;font-weight:500}
+.badge{display:inline-block;margin-left:7px;font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;padding:1px 6px;border-radius:9px;background:var(--sunken);
+  color:var(--ink-3)}
+.badge.crit{background:var(--oxide-soft);color:var(--oxide)}
+.badge:empty{display:none}
+.body{padding:20px;overflow:auto;flex:1}
+.empty{color:var(--ink-3);font-size:14px;max-width:60ch;line-height:1.6}
+table.rec{border-collapse:collapse;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+table.rec th{position:sticky;top:0;background:var(--paper);text-align:left;
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+  padding:6px 10px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap}
+table.rec td{padding:3px 10px 3px 0;border-bottom:1px solid var(--rule);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+table.rec td.n{text-align:right}
+</style>
+<style>
+html{-webkit-text-size-adjust:100%}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="tool">
+  <aside class="side">
+    <div class="brand">
+      <div class="eyebrow">overpunch</div>
+      <h1>Inspector</h1>
+      <p>Read a mainframe extract from its copybook. Nothing is uploaded —
+      this runs in your browser.</p>
+      <a class="back" href="./">← the demo and the story behind it</a>
+    </div>
+
+    <div class="drop" id="drop-cpy">
+      <label for="in-cpy">Copybook (required)</label>
+      <input type="file" id="in-cpy" accept=".cpy,.cbl,.cob,.txt,text/plain">
+      <div class="fname" id="name-cpy"></div>
+      <button class="clearone" id="clear-cpy" hidden>remove</button>
+    </div>
+
+    <div class="drop" id="drop-dat">
+      <label for="in-dat">Data file (optional)</label>
+      <input type="file" id="in-dat">
+      <div class="fname" id="name-dat"></div>
+      <button class="clearone" id="clear-dat" hidden>remove</button>
+    </div>
+
+    <div class="opt">
+      <label for="in-enc">Code page</label>
+      <select id="in-enc">
+        <option value="cp037">cp037 — US/Canada EBCDIC</option>
+        <option value="cp500">cp500 — International EBCDIC</option>
+        <option value="cp273">cp273 — German/Austrian</option>
+        <option value="cp1026">cp1026 — Turkish</option>
+        <option value="cp1140">cp1140 — cp037 with euro</option>
+        <option value="latin1">latin-1 — plain ASCII/ANSI</option>
+      </select>
+    </div>
+
+    <div class="opt">
+      <label for="in-reclen">Record length</label>
+      <input type="number" id="in-reclen" min="1" placeholder="from the copybook">
+      <div class="hint">Set this when the copybook is only a view of a longer
+      record.</div>
+    </div>
+
+    <div class="opt" id="recordpick" hidden>
+      <label for="in-record">Record</label>
+      <select id="in-record"></select>
+      <div class="hint">This copybook declares more than one.</div>
+    </div>
+
+    <div class="acts">
+      <button id="run-analyze" class="primary">Analyse</button>
+      <button id="run-clear">Clear both</button>
+    </div>
+    <button id="run-sample" class="wide">Load a sample (German, cp273)</button>
+    <div class="rmsg" id="run-msg"></div>
+  </aside>
+
+  <main class="pane">
+    <div class="tabs" id="tabs">
+      <button data-tab="layout" aria-pressed="true">Layout<span class="badge" id="b-layout"></span></button>
+      <button data-tab="findings" aria-pressed="false">Findings<span class="badge" id="b-findings"></span></button>
+      <button data-tab="records" aria-pressed="false">Records<span class="badge" id="b-records"></span></button>
+      <button data-tab="schema" aria-pressed="false">Schema</button>
+    </div>
+    <div class="body">
+      <div id="tab-layout"></div>
+      <div id="tab-findings" hidden></div>
+      <div id="tab-records" hidden></div>
+      <div id="tab-schema" hidden></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* A COBOL copybook parser in the browser.
+
+   Written so the page can analyse YOUR files without them going anywhere. The
+   data this tool exists for - benefit records, tax extracts, card transactions -
+   is exactly the data nobody may upload to a website, so the analysis has to
+   come to the bytes rather than the other way round. Nothing here touches the
+   network.
+
+   Deliberately a second implementation of src/overpunch/copybook.py rather than
+   a port of it: page/verify_js.js compares the two across every copybook in the
+   repository, and disagreement is how the Python decoder's digit-dropping bug
+   was found in the first place. */
+var COBOL = (function(){
+"use strict";
+
+var USAGES = {
+  "COMP":"COMP","COMPUTATIONAL":"COMP","COMP-4":"COMP","COMPUTATIONAL-4":"COMP",
+  "BINARY":"COMP","COMP-3":"COMP-3","COMPUTATIONAL-3":"COMP-3",
+  "PACKED-DECIMAL":"COMP-3","COMP-1":"COMP-1","COMPUTATIONAL-1":"COMP-1",
+  "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2"
+};
+
+// Compiler-directing statements: they control the listing, carry no period, and
+// left in place they merge with the next line and swallow the field after it.
+var DIRECTIVES = {SKIP1:1, SKIP2:1, SKIP3:1, EJECT:1, TITLE:1};
+
+/* The sequence area is columns 1-6 whatever it contains: `000100` and `00001 `
+   are both ordinary. Insisting on six digits made every comment parse as a
+   statement and produced a zero-byte record with no error. A level number
+   cannot be four to six leading digits, so this cannot misfire on free format. */
+function detectFormat(text){
+  var sequenced = 0, meaningful = 0;
+  text.split(/\r?\n/).forEach(function(raw){
+    var line = raw.replace(/[\r\n]+$/,"");
+    if(!line.trim()) return;
+    meaningful++;
+    if(/^\d{4,6}[\s\-*\/]/.test(line)) sequenced++;
+  });
+  if(!meaningful) return "free";
+  return sequenced >= meaningful * 0.5 ? "fixed" : "free";
+}
+
+function stripLine(line, fmt){
+  line = line.replace(/[\r\n]+$/,"");
+  if(fmt === "fixed"){
+    if(line.length > 72) line = line.slice(0,72);
+    if(line.length > 6 && (line.charAt(6) === "*" || line.charAt(6) === "/")) return "";
+    if(line.replace(/^\s+/,"").charAt(0) === "*") return "";
+    if(line.length <= 6) return "";
+    line = "      " + line.slice(6);
+  } else if(line.replace(/^\s+/,"").charAt(0) === "*") return "";
+  var body = line.trim();
+  if(body){
+    var first = body.split(/\s+/)[0].replace(/\.$/,"").toUpperCase();
+    if(DIRECTIVES[first]) return "";
+  }
+  return line;
+}
+
+/* A period ends a statement only when a space or the line end follows it.
+   Splitting on every period breaks `VALUE -9999999.99.` at the decimal point. */
+function terminator(text){
+  var quote = null;
+  for(var i = 0; i < text.length; i++){
+    var ch = text.charAt(i);
+    if(quote){ if(ch === quote) quote = null; continue; }
+    if(ch === "'" || ch === '"') quote = ch;
+    else if(ch === "." && (i + 1 === text.length || /\s/.test(text.charAt(i+1))))
+      return i;
+  }
+  return -1;
+}
+
+function checkTruncation(text){
+  var lines = text.split(/\r?\n/);
+  for(var i=0;i<lines.length;i++){
+    var l = lines[i].replace(/[\r\n]+$/,"");
+    if(l.length <= 72 || !/^\d{6}/.test(l)) continue;
+    var kept = l.slice(6,72), tail = l.slice(72);
+    if(tail.indexOf(".") >= 0 && kept.indexOf(".") < 0)
+      throw new Error("line "+(i+1)+" runs past column 72 and its terminating "+
+        "period falls in the discarded identification area, so the statement "+
+        "never ends and merges with the next one. Shorten the line.");
+  }
+}
+
+function statements(text, fmt){
+  fmt = fmt || detectFormat(text);
+  var out=[], buf=[];
+  text.split(/\r?\n/).forEach(function(raw){
+    var line = stripLine(raw, fmt);
+    if(!line.trim()) return;
+    buf.push(line.trim());
+    var joined = buf.join(" ");
+    for(;;){
+      var cut = terminator(joined);
+      if(cut < 0) break;
+      var head = joined.slice(0,cut);
+      joined = joined.slice(cut+1);
+      if(head.trim()) out.push(head.trim());
+    }
+    buf = joined.trim() ? [joined] : [];
+  });
+  if(buf.length && buf.join(" ").trim()) out.push(buf.join(" ").trim());
+  return out;
+}
+
+function parsePicture(pic){
+  var src = pic.toUpperCase().replace(/\s+/g,"");
+  var signed = src.charAt(0) === "S";
+  if(signed) src = src.slice(1);
+  var expanded="", i=0;
+  while(i < src.length){
+    var ch = src.charAt(i);
+    var m = /^\((\d+)\)/.exec(src.slice(i+1));
+    if(m){ expanded += new Array(parseInt(m[1],10)+1).join(ch); i += 1 + m[0].length; }
+    else { expanded += ch; i += 1; }
+  }
+  function count(s,c){ return (s.match(new RegExp(c,"g"))||[]).length; }
+  if(expanded.indexOf("9") >= 0){
+    var v = expanded.indexOf("V");
+    var before = v<0 ? expanded : expanded.slice(0,v);
+    var after  = v<0 ? ""       : expanded.slice(v+1);
+    return {raw:pic, numeric:true, digits:count(before,"9")+count(after,"9"),
+            scale:v<0?0:count(after,"9"), signed:signed, chars:0};
+  }
+  return {raw:pic, numeric:false, digits:0, scale:0, signed:false,
+          chars:(expanded.match(/[XA9]/g)||[]).length};
+}
+
+function tokens(stmt){ return stmt.match(/'[^']*'|"[^"]*"|\S+/g) || []; }
+
+function elementarySize(f){
+  if(f.usage === "COMP-1") return 4;
+  if(f.usage === "COMP-2") return 8;
+  var p = f.pic;
+  if(!p) return 0;
+  if(!p.numeric) return p.chars;
+  if(f.usage === "COMP-3") return Math.floor(p.digits/2) + 1;
+  if(f.usage === "COMP") return p.digits<=4 ? 2 : (p.digits<=9 ? 4 : 8);
+  return p.digits + ((p.signed && f.signSeparate) ? 1 : 0);
+}
+
+function size(f){
+  if(!f.children.length) return elementarySize(f);
+  var total = 0;
+  f.children.forEach(function(c){
+    // a REDEFINES shares bytes only with a field that is HERE; one naming a
+    // record from another copybook has nothing to share with, and IS the record
+    if(c.redefines && !c.redefinesExternal) return;
+    total += size(c) * c.occurs;
+  });
+  return total;
+}
+
+function parse(text){ return parseRecords(text)[0]; }
+
+/* An 01 is a record boundary, not a continuation. A copybook may declare
+   several records - 72 of 885 in one real library do, one of them 24. */
+function parseRecords(text){
+  checkTruncation(text);
+  var fmt = detectFormat(text), fragment = false;
+  var roots=[], root=null, stack=[], lastElem=null;
+  statements(text, fmt).forEach(function(stmt){
+    var tok = tokens(stmt);
+    if(!tok.length || !/^\d+$/.test(tok[0])) return;
+    var level = parseInt(tok[0],10), rest = tok.slice(1);
+
+    if(level === 88){
+      if(!lastElem) return;
+      var nm = rest[0] || "FILLER";
+      var vals = rest.slice(1).filter(function(t){
+        return ["VALUE","VALUES","IS","ARE","THRU","THROUGH"].indexOf(t.toUpperCase())<0;
+      }).map(function(t){ return t.replace(/^['"]|['"]$/g,""); });
+      (lastElem.conditions[nm] = lastElem.conditions[nm] || []).push.apply(
+        lastElem.conditions[nm], vals);
+      return;
+    }
+    if(level === 66) return;
+
+    var name="FILLER", idx=0;
+    if(rest.length && ["PIC","PICTURE","REDEFINES","OCCURS"].indexOf(rest[0].toUpperCase())<0){
+      name = rest[0]; idx = 1;
+    }
+    var f = {level:level, name:name, pic:null, usage:"DISPLAY", occurs:1,
+             occursDependingOn:null, redefines:null, signSeparate:false,
+             signLeading:false, conditions:{}, children:[], offset:0, parent:null};
+
+    while(idx < rest.length){
+      var w = rest[idx].toUpperCase();
+      if(w === "PIC" || w === "PICTURE"){
+        idx++; if(idx<rest.length && rest[idx].toUpperCase()==="IS") idx++;
+        f.pic = parsePicture(rest[idx]);
+      } else if(w === "REDEFINES"){ idx++; f.redefines = rest[idx]; }
+      else if(w === "OCCURS"){
+        idx++; f.occurs = parseInt(rest[idx],10);
+        if(idx+2 < rest.length && rest[idx+1].toUpperCase()==="TO"){
+          f.occurs = parseInt(rest[idx+2],10); idx += 2;
+        }
+        for(var j=idx;j<rest.length-1;j++){
+          if(rest[j].toUpperCase()==="ON"){ f.occursDependingOn = rest[j+1]; break; }
+        }
+      }
+      else if(w === "SIGN"){
+        var tail = rest.slice(idx).map(function(t){return t.toUpperCase();});
+        if(tail.indexOf("LEADING")>=0) f.signLeading = true;
+        if(tail.indexOf("SEPARATE")>=0) f.signSeparate = true;
+      }
+      else if(w === "SEPARATE") f.signSeparate = true;
+      else if(w === "LEADING") f.signLeading = true;
+      else if(USAGES[w]) f.usage = USAGES[w];
+      idx++;
+    }
+
+    if(level === 1){
+      root = f; roots.push(f); stack = [f];
+      if(f.pic) lastElem = f;
+      return;
+    }
+    if(root === null){
+      // a fragment: fields meant to be COPY'd into a record declared elsewhere
+      fragment = true;
+      root = {level:0, name:"<fragment>", pic:null, usage:"DISPLAY", occurs:1,
+              occursDependingOn:null, redefines:null, redefinesExternal:false,
+              signSeparate:false, signLeading:false, conditions:{},
+              conditionRanges:{}, children:[], offset:0, parent:null};
+      roots.push(root);
+      stack = [root];
+      root.children.push(f); stack.push(f);
+      if(f.pic) lastElem = f;
+      return;
+    } else {
+      while(stack.length && stack[stack.length-1].level >= level) stack.pop();
+      if(!stack.length) throw new Error("orphaned level "+level+" field "+name);
+      stack[stack.length-1].children.push(f);
+      stack.push(f);
+    }
+    if(f.pic) lastElem = f;
+  });
+  if(!roots.length) throw new Error("no record definition found: no 01 level "+
+    "and no fields to make a record from");
+
+  function finish(root){
+  function find(node, want){
+    if(node.name.toUpperCase() === want.toUpperCase()) return node;
+    for(var i=0;i<node.children.length;i++){
+      var hit = find(node.children[i], want); if(hit) return hit;
+    }
+    return null;
+  }
+  (function markExternal(f){
+    if(f.redefines) f.redefinesExternal = find(root, f.redefines) === null;
+    f.children.forEach(markExternal);
+  })(root);
+
+  // lay out ONE occurrence and return where it ends; the caller multiplies.
+  // Returning size*occurs here multiplied it twice for an elementary field with
+  // OCCURS - PIC X(40) OCCURS 5 advanced 1000 bytes instead of 200.
+  function walk(f, base){
+    f.offset = base;
+    if(!f.children.length) return base + size(f);
+    var cursor = base;
+    f.children.forEach(function(c){
+      c.parent = f;
+      if(c.redefines && !c.redefinesExternal){
+        var t = find(root, c.redefines);
+        walk(c, t ? t.offset : cursor);
+        return;
+      }
+      var end = walk(c, cursor);
+      cursor = cursor + (end - cursor) * c.occurs;
+    });
+    return cursor;
+  }
+  walk(root, 0);
+
+  var leaves = [];
+  (function rec(f){
+    if(f.children.length) f.children.forEach(rec);
+    else if(f.pic || f.usage === "COMP-1" || f.usage === "COMP-2") leaves.push(f);
+  })(root);
+
+  var recordLen = size(root);
+  var reach = leaves.reduce(function(m,f){
+    return Math.max(m, f.offset + size(f)*f.occurs); }, 0);
+  if(reach > recordLen)
+    throw new Error("field offsets reach byte "+reach+" but the record is "+
+                    recordLen+" bytes; the layout disagrees with itself");
+
+  return {root:root, recordLen:recordLen, fields:leaves,
+          isFragment:fragment && root.level === 0,
+          find:function(n){return find(root,n);}, size:size};
+  }
+
+  return roots.map(finish);
+}
+
+return {parse: parse, parseRecords: parseRecords,
+        parsePicture: parsePicture, statements: statements,
+        elementarySize: elementarySize, size: size,
+        detectFormat: detectFormat, terminator: terminator};
+})();
+</script>
+<script>
+/* The same finding rules as src/overpunch/findings.py, running in the browser.
+
+   Kept as an independent implementation on purpose. page/verify_js.js runs both
+   over the same files and requires the finding sets to match; two implementations
+   disagreeing is the cheapest bug detector this project has. */
+var SCAN = (function(){
+"use strict";
+
+var CP037 = null;                       // injected: 256-char decode table
+var POS = "{ABCDEFGHI", NEG = "}JKLMNOPQR";
+
+function setTable(t){ CP037 = t; }
+
+function text(bytes, off, len){
+  var o = "";
+  for(var i = off; i < off + len; i++) o += CP037[bytes[i]];
+  return o;
+}
+function splitSign(t){
+  if(!t.length) return {d:"", s:1};
+  var last = t.charAt(t.length-1), i;
+  if(last === "-" || last === "+") return {d:t.slice(0,-1), s:last==="-"?-1:1};
+  i = NEG.indexOf(last); if(i>=0) return {d:t.slice(0,-1)+i, s:-1};
+  i = POS.indexOf(last); if(i>=0) return {d:t.slice(0,-1)+i, s:1};
+  return {d:t, s:1};
+}
+function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
+
+/* Low-values and spaces are how a mainframe says "no value". str.trim() does
+   not remove 0x00, so a column left entirely unset looked populated. */
+function isUnset(t){
+  if(!t.length) return true;
+  for(var i = 0; i < t.length; i++){
+    var c = t.charAt(i);
+    if(c !== "\u0000" && c !== " " && c !== "\u00ff") return false;
+  }
+  return true;
+}
+
+/* The sign is in the ZONE NIBBLE of the last byte - 0xC_ positive, 0xD_
+   negative - which every EBCDIC page shares. The character it decodes to does
+   not: 0xD0 is '}' in cp037, 'ü' in cp273, 'ğ' in cp1026. Reading the sign from
+   text works on US data and silently loses German negatives. */
+/* COMP-3: two digits per byte, sign in the low nibble of the last one. The
+   scanner used to check only that the nibbles were valid and never read the
+   value, so scaled packed money reported a total of zero. */
+function decodePacked(bytes, off, len, scale){
+  var digits = "", sign = 1;
+  for(var i = 0; i < len; i++){
+    var b = bytes[off + i], hi = b >> 4, lo = b & 15;
+    digits += String(hi);
+    if(i === len - 1) sign = (lo === 0x0B || lo === 0x0D) ? -1 : 1;
+    else digits += String(lo);
+  }
+  var v = parseInt(digits || "0", 10) * sign;
+  return scale ? v / Math.pow(10, scale) : v;
+}
+
+function zoneSign(byte){
+  var zone = byte >> 4, digit = byte & 15;
+  if((zone === 0x0C || zone === 0x0D) && digit <= 9)
+    return {s: zone === 0x0D ? -1 : 1, d: String(digit)};
+  return null;
+}
+
+function fieldLen(f){ return COBOL.size(f) * f.occurs; }
+
+/* IBM hexadecimal float: sign bit, 7-bit excess-64 exponent, base-SIXTEEN
+   fraction. Not IEEE 754 - unpacking these bytes as a C float returns a
+   plausible wrong number. */
+function decodeHexFloat(bytes, off, len){
+  var head = bytes[off], sign = (head & 0x80) ? -1 : 1, exp = (head & 0x7F) - 64;
+  var frac = 0;
+  for(var i = 1; i < len; i++) frac = frac * 256 + bytes[off + i];
+  if(frac === 0) return 0;
+  return sign * (frac / Math.pow(2, 8 * (len - 1))) * Math.pow(16, exp);
+}
+
+function observe(st, f, bytes, off){
+  st.examined++;
+  var len = fieldLen(f);
+  if(f.usage === "COMP-1" || f.usage === "COMP-2"){
+    st.sumCorrect += decodeHexFloat(bytes, off + f.offset, len);
+    return;
+  }
+  var t = text(bytes, off + f.offset, len);
+  if(!f.pic) return;
+  if(t.indexOf("\uFFFD") >= 0) st.undecodable++;   // replacement char, escaped
+
+  if(!f.pic || !f.pic.numeric){
+    st.distinct[t] = (st.distinct[t]||0) + 1;
+    if(!t.trim()) st.blank++;
+    if(isUnset(t)) st.unset++;
+    return;
+  }
+  if(f.usage === "COMP-3"){
+    var bad = false;
+    for(var i = off+f.offset; i < off+f.offset+len-1; i++){
+      if((bytes[i]>>4) > 9 || (bytes[i]&15) > 9) bad = true;
+    }
+    var lo = bytes[off+f.offset+len-1] & 15;
+    if(lo !== 12 && lo !== 13 && lo !== 15) bad = true;
+    if(bad) st.invalidPacked++;
+    else st.sumCorrect += decodePacked(bytes, off + f.offset, len, f.pic.scale || 0);
+    return;
+  }
+  if(f.usage === "COMP"){
+    var v = 0;
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[off + f.offset + k];
+    if(f.pic.signed && (bytes[off + f.offset] & 0x80))
+      v -= Math.pow(2, 8 * len);
+    st.sumCorrect += f.pic.scale ? v / Math.pow(10, f.pic.scale) : v;
+    return;
+  }
+  if(f.usage !== "DISPLAY") return;
+
+  var zoned = zoneSign(bytes[off + f.offset + len - 1]);
+  var last = t.length ? t.charAt(t.length-1) : "";
+  if(zoned){
+    st.nonDigitLast++;
+    if(zoned.s < 0) st.negative++; else st.positive++;
+  } else if(last && !/[0-9]/.test(last)){
+    st.nonDigitLast++;
+    var sp = splitSign(t);
+    if(sp.s < 0) st.negative++; else st.positive++;
+  }
+  var sp2 = zoned ? {d: t.slice(0,-1) + zoned.d, s: zoned.s} : splitSign(t);
+  var d = digitsOf(sp2.d);
+  if(!t.trim()) st.blank++;
+  if(isUnset(t)) st.unset++;
+  if(d && /^0+$/.test(d)) st.allZero++;
+  st.widest = Math.max(st.widest, d.replace(/^0+/,"").length);
+
+  var v = parseInt(digitsOf(sp2.d),10);
+  var div = Math.pow(10, f.pic.scale||0);
+  var signed = (f.pic.signed ? sp2.s : 1) * v / div;
+  st.sumCorrect += signed;
+  st.sumAbs += Math.abs(signed);
+  st.sumNaive += parseInt(digitsOf(t),10);
+  if(!f.pic.signed) st.sumForced += sp2.s * v / div;
+}
+
+/* RECFM=VB: each record carries a 4-byte descriptor word - a big-endian length
+   that INCLUDES the RDW, then two reserved zero bytes. Divisibility alone is not
+   the test; the descriptor has to be real. */
+function recordOffsets(bytes, recordLen){
+  if(recordLen > 0 && bytes.length % recordLen === 0){
+    var offs = [];
+    for(var i = 0; i + recordLen <= bytes.length; i += recordLen) offs.push(i);
+    return {recfm: "fixed", offsets: offs};
+  }
+  // Walk the descriptor chain and require it to land exactly on the end of the
+  // file. A first descriptor that looks plausible proves nothing; a chain that
+  // consumes the file to the byte is not a coincidence. Reserved bytes are
+  // checked strictly first, then leniently - a dataset moved off a mainframe
+  // does not always keep them.
+  for(var strict = 1; strict >= 0; strict--){
+    var o = [], at = 0, ok = true;
+    while(at + 4 <= bytes.length){
+      var len = (bytes[at] << 8) | bytes[at+1];
+      if(len < 4 || at + len > bytes.length){ ok = false; break; }
+      if(strict && (bytes[at+2] !== 0 || bytes[at+3] !== 0)){ ok = false; break; }
+      o.push(at + 4);
+      at += len;
+    }
+    if(ok && at === bytes.length && o.length) return {recfm: "vb", offsets: o};
+  }
+  return {recfm: "mismatch", offsets: []};
+}
+
+function scan(layout, bytes, limit){
+  var stats = {}, found = recordOffsets(bytes, layout.recordLen);
+  var offsets = found.offsets;
+  if(limit) offsets = offsets.slice(0, limit);
+  var n = offsets.length;
+  layout.fields.forEach(function(f){
+    stats[f.name] = {examined:0, blank:0, unset:0, allZero:0, nonDigitLast:0, negative:0,
+                     positive:0, widest:0, distinct:{}, undecodable:0,
+                     invalidPacked:0, sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
+  });
+  for(var r = 0; r < n; r++){
+    var off = offsets[r];
+    layout.fields.forEach(function(f){ observe(stats[f.name], f, bytes, off); });
+  }
+  return {stats:stats, records:n, recfm:found.recfm};
+}
+
+function money(x){ return x.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pct(a,b){ return b ? (100*a/b).toFixed(1)+"%" : "n/a"; }
+
+function findings(layout, res){
+  var out = [];
+  layout.fields.forEach(function(f){
+    var st = res.stats[f.name];
+    if(!st || !st.examined) return;
+    var p = f.pic, isFiller = f.name.toUpperCase() === "FILLER";
+    var signedBytes = p && p.numeric && f.usage === "DISPLAY" && (st.negative + st.positive);
+
+    if(signedBytes){
+      if(p.signed && st.negative){
+        out.push({code:"TRAILING_SIGN", severity:"critical", field:f.name,
+          claim:"the last byte carries the sign, not a digit; dropping it inverts the negative records",
+          evidence:{negative:st.negative.toLocaleString(), positive:st.positive.toLocaleString(),
+                    share_negative:pct(st.negative, st.examined)},
+          records:st.examined,
+          impact:"correct total "+money(st.sumCorrect)+"; sign ignored "+money(st.sumAbs)+
+                 " (overstated by "+money(st.sumAbs-st.sumCorrect)+")"});
+      } else if(p.signed){
+        out.push({code:"SIGN_PRESENT_ALL_POSITIVE", severity:"info", field:f.name,
+          claim:"the final byte is a sign, not a digit, but every record in this file is positive; a digits-only read happens to agree here and will stop agreeing the first time a credit appears",
+          evidence:{positive:st.positive.toLocaleString(), negative:"0"}, records:st.examined});
+      } else {
+        out.push({code:"UNDECLARED_SIGN", severity:"critical", field:f.name,
+          claim:"copybook declares this field unsigned (PIC 9) but the bytes carry a sign in the final position; the copybook is wrong about the data",
+          evidence:{signed_records:signedBytes.toLocaleString(), share:pct(signedBytes, st.examined),
+                    declared:p.raw}, records:st.examined,
+          impact:"read as declared "+money(st.sumCorrect)+"; honouring the sign "+
+                 money(st.sumForced)+" (difference "+money(st.sumCorrect-st.sumForced)+")"});
+      }
+    }
+    if(p && p.numeric && p.scale){
+      var display = f.usage === "DISPLAY";
+      out.push({code:"IMPLIED_DECIMAL", severity:"warn", field:f.name,
+        claim: display
+          ? p.scale+" implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^"+p.scale+" too large"
+          : p.scale+" implied decimal place(s) on a "+f.usage+" field; the value is stored unscaled, and a decoder that returns the integer leaves the caller 10^"+p.scale+" too large",
+        evidence:{declared:p.raw, scale:p.scale, usage:f.usage},
+        records:st.examined,
+        impact: display
+          ? "correct total "+money(st.sumCorrect)+"; digits-only read "+st.sumNaive.toLocaleString()
+          : "correct total "+money(st.sumCorrect)+"; unscaled "+
+            Math.round(st.sumCorrect*Math.pow(10,p.scale)).toLocaleString()});
+    }
+    if(p && p.numeric && p.scale === 0 && st.widest && st.widest <= (p.digits - p.scale) - 1){
+      out.push({code:"WIDTH_UNDERFILL", severity:"warn", field:f.name,
+        claim:"declared "+(p.digits-p.scale)+" integer digits but no record uses more than "+st.widest+"; the source may be narrower than the copybook, or values may be truncated",
+        evidence:{declared_digits:p.digits-p.scale, widest_observed:st.widest},
+        records:st.examined});
+    }
+    if(isFiller && st.unset < st.examined){
+      out.push({code:"POPULATED_FILLER", severity:"warn",
+        field:"FILLER @ offset "+f.offset,
+        claim:"declared FILLER but carries data; something is in this field that the copybook does not describe",
+        evidence:{non_blank:(st.examined-st.blank).toLocaleString(),
+                  distinct_values:Object.keys(st.distinct).length}, records:st.examined});
+    }
+    if(st.blank === st.examined || st.allZero === st.examined ||
+       st.unset === st.examined){
+      out.push({code:"NEVER_POPULATED", severity:"info", field:f.name,
+        claim:"field is blank, zero or low-values in every record examined",
+        evidence:{blank:st.blank.toLocaleString(), zero:st.allZero.toLocaleString(),
+                  unset:st.unset.toLocaleString(), of:st.examined.toLocaleString()},
+        records:st.examined});
+    }
+    if(st.invalidPacked){
+      out.push({code:"INVALID_PACKED", severity:"critical", field:f.name,
+        claim:"declared COMP-3 but the nibbles are not valid packed decimal; the usage or the offset is wrong",
+        evidence:{bad_records:st.invalidPacked.toLocaleString(),
+                  share:pct(st.invalidPacked, st.examined)}, records:st.examined});
+    }
+    if(st.undecodable && st.undecodable > st.examined * 0.01){
+      out.push({code:"ENCODING_SUSPECT", severity:"warn", field:f.name,
+        claim:"bytes do not decode cleanly in the chosen code page",
+        evidence:{undecodable:st.undecodable.toLocaleString(),
+                  share:pct(st.undecodable, st.examined)}, records:st.examined});
+    }
+  });
+
+  layout.fields.forEach(function(f){
+    var keys = Object.keys(f.conditions);
+    if(!keys.length) return;
+    var st = res.stats[f.name], claimed = {}, owner = {}, singles = {};
+    keys.forEach(function(k){
+      var vals = f.conditions[k] || [];
+      vals.forEach(function(v){
+        claimed[v] = (claimed[v]||0)+1; (owner[v]=owner[v]||[]).push(k); });
+      // only a condition whose ONLY value is v makes v ambiguous; one that
+      // enumerates the permitted set beside the specific ones is ordinary COBOL
+      var ranges = (f.conditionRanges || {})[k];
+      if(vals.length === 1 && !(ranges && ranges.length)){
+        singles[vals[0]] = (singles[vals[0]]||0)+1;
+        (owner[vals[0]]=owner[vals[0]]||[]);
+      }
+    });
+    Object.keys(singles).forEach(function(v){
+      if(singles[v] > 1) out.push({code:"AMBIGUOUS_CONDITION", severity:"critical",
+        field:f.name,
+        claim:"value '"+v+"' is claimed by "+singles[v]+" different condition names; which one is meant cannot be settled from the copybook or the data",
+        evidence:{value:v, names:owner[v].join(", ")}, records:st?st.examined:0});
+    });
+    if(st){
+      var extra = {};
+      Object.keys(st.distinct).forEach(function(v){
+        var t = v.trim(); if(t && !(t in claimed)) extra[t] = st.distinct[v]; });
+      var names = Object.keys(extra);
+      if(names.length) out.push({code:"UNCOVERED_VALUE", severity:"warn", field:f.name,
+        claim:"values appear in the data that no 88-level accounts for; code that switches on the declared conditions will fall through for these records",
+        evidence:{values:names.slice(0,5).map(function(v){return "'"+v+"' x"+extra[v];}).join(", "),
+                  records_affected:names.reduce(function(a,v){return a+extra[v];},0).toLocaleString()},
+        records:st.examined});
+    }
+  });
+
+  var order = {critical:0, warn:1, info:2};
+  out.sort(function(a,b){
+    return (order[a.severity]-order[b.severity]) || a.field.localeCompare(b.field); });
+  return out;
+}
+
+/* One field, decoded the way the tool would decode it, rendered for a table. */
+function readValue(f, bytes, off){
+  var len = fieldLen(f), at = off + f.offset;
+  if(f.usage === "COMP-1" || f.usage === "COMP-2")
+    return String(Math.round(decodeHexFloat(bytes, at, len) * 1e6) / 1e6);
+  if(!f.pic) return text(bytes, at, len);
+  if(f.usage === "COMP-3") return String(decodePacked(bytes, at, len, f.pic.scale || 0));
+  if(f.usage === "COMP"){
+    var v = 0;
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[at + k];
+    if(f.pic.signed && (bytes[at] & 0x80)) v -= Math.pow(2, 8 * len);
+    return String(f.pic.scale ? v / Math.pow(10, f.pic.scale) : v);
+  }
+  var t = text(bytes, at, len);
+  if(!f.pic.numeric) return t.replace(/[\u0000\s]+$/, "");
+  var zoned = zoneSign(bytes[at + len - 1]);
+  var sp = zoned ? {d: t.slice(0, -1) + zoned.d, s: zoned.s} : splitSign(t);
+  var digits = digitsOf(sp.d), div = Math.pow(10, f.pic.scale || 0);
+  var v2 = (f.pic.signed ? sp.s : 1) * parseInt(digits, 10) / div;
+  return f.pic.scale ? v2.toFixed(f.pic.scale) : String(v2);
+}
+
+return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign,
+        text:text, recordOffsets:recordOffsets, readValue:readValue};
+})();
+</script>
+<script>
+/* Render PostgreSQL DDL from a plan, in the browser.
+
+   A second implementation of postgres_ddl() in src/overpunch/generate.py.
+   page/verify_js.js requires the two to agree byte for byte.
+
+   It exists so the primary key can be CHOSEN on the page - including a composite
+   one, which is what a VSAM key usually is - rather than substituted into
+   pre-rendered text. The first version patched the key line with a regex and
+   could only express a single column, which quietly made the wrong answer the
+   only expressible one. */
+var DDL = (function(){
+"use strict";
+
+/* Python's json.dumps writes ", " and ": " separators; JSON.stringify writes
+   neither. The page states this DDL is real tool output, so it has to be the
+   same bytes, down to the spacing in a comment. */
+function pyJson(v){
+  if(v === null) return "null";
+  if(Array.isArray(v)) return "[" + v.map(pyJson).join(", ") + "]";
+  if(typeof v === "object") return "{" + Object.keys(v).map(function(k){
+      return JSON.stringify(k) + ": " + pyJson(v[k]); }).join(", ") + "}";
+  return JSON.stringify(v);
+}
+
+function pad(name){ while(name.length < 26) name += " "; return name; }
+
+/* A second implementation of postgres_ddl() from src/overpunch/generate.py.
+   page/verify_ddl.js requires the two to agree byte for byte; it exists so the
+   primary key can be chosen here, including a composite one, rather than being
+   substituted into pre-rendered text. */
+function render(p, pkFields){
+  var plan = p.plan, pkCols = (pkFields||[]).map(columnName.bind(null, plan));
+  var out = ["-- generated by overpunch from " + plan.source.copybook,
+             "-- " + plan.source.record_bytes + "-byte fixed records, " +
+             plan.source.encoding,
+             "-- policies: " + pyJson(plan.policies), ""];
+  plan.tables.forEach(function(t){
+    out.push("CREATE TABLE " + t.name + " (");
+    var rows = [];
+    if(t.kind === "occurs"){
+      rows.push(["    " + pad("parent_id") + "BIGINT NOT NULL", ""]);
+      rows.push(["    " + pad("occurrence") + "SMALLINT NOT NULL", ""]);
+    }
+    t.columns.forEach(function(c){
+      var nn = pkCols.indexOf(c.name) >= 0 ? " NOT NULL" : "";
+      rows.push(["    " + pad(c.name) + c.type + nn, c.note]);
+    });
+    if(t.kind === "root" && pkCols.length)
+      rows.push(["    PRIMARY KEY (" + pkCols.join(", ") + ")", ""]);
+    if(t.kind === "occurs")
+      rows.push(["    PRIMARY KEY (parent_id, occurrence)", ""]);
+    rows.forEach(function(r, i){
+      out.push(r[0] + (i < rows.length - 1 ? "," : "") + (r[1] ? "  -- " + r[1] : ""));
+    });
+    out.push(");");
+    if(t.kind === "occurs")
+      out.push("-- " + t.occurs_of + " OCCURS up to " + t.occurs_max +
+               (t.depends_on ? " DEPENDING ON " + t.depends_on : ""));
+    out.push("");
+  });
+  return out.join("\n");
+}
+function columnName(plan, cobolName){
+  for(var i=0;i<plan.tables.length;i++)
+    for(var j=0;j<plan.tables[i].columns.length;j++)
+      if(plan.tables[i].columns[j].field.toUpperCase() === cobolName.toUpperCase())
+        return plan.tables[i].columns[j].name;
+  return cobolName.toLowerCase().replace(/-/g,"_");
+}
+
+return {render: render, columnName: columnName, pad: pad, pyJson: pyJson};
+})();
+</script>
+<script>
+/* Build a minimal extraction plan in the browser.
+
+   A second implementation of the column and type mapping in
+   src/overpunch/plan.py, so the tool page can show a schema without a server.
+   page/verify_js.js compares every type it produces against the Python across
+   every copybook in the repository.
+
+   It is deliberately only the columns: the DECISIONS - which REDEFINES branch
+   is live, what the key is - are not guessed here any more than they are there.
+   The page says so, and points at `overpunch plan` for the full version. */
+var PLAN = (function(){
+"use strict";
+
+var TRANSLITERATE = {"Ä":"AE","Ö":"OE","Ü":"UE","ß":"SS",
+  "Å":"AA","Æ":"AE","Ø":"OE","Þ":"TH","Ð":"DH",
+  "Œ":"OE","İ":"I","ı":"i","Ł":"L"};
+
+function normalise(name){
+  var s = name;
+  Object.keys(TRANSLITERATE).forEach(function(ch){
+    var repl = TRANSLITERATE[ch];
+    s = s.split(ch).join(repl).split(ch.toLowerCase()).join(repl.toLowerCase());
+  });
+  s = s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  s = s.replace(/[^0-9a-zA-Z]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+  if (/^[0-9]/.test(s)) s = "c_" + s;
+  return s || "unnamed";
+}
+
+var INT_TYPES = [[4,"SMALLINT"],[9,"INTEGER"],[18,"BIGINT"]];
+
+function sqlType(f, trim){
+  if (f.usage === "COMP-1") return "REAL";
+  if (f.usage === "COMP-2") return "DOUBLE PRECISION";
+  var p = f.pic;
+  if (!p) return "BYTEA";
+  if (!p.numeric) return (trim === false ? "CHAR" : "VARCHAR") + "(" + p.chars + ")";
+  if (p.scale) return "NUMERIC(" + p.digits + "," + p.scale + ")";
+  for (var i = 0; i < INT_TYPES.length; i++)
+    if (p.digits <= INT_TYPES[i][0]) return INT_TYPES[i][1];
+  return "NUMERIC(" + p.digits + ")";
+}
+
+function build(layout, table, encoding){
+  var columns = [], seen = {};
+  layout.fields.forEach(function(f){
+    if (f.name.toUpperCase() === "FILLER") return;
+    var ident = normalise(f.name);
+    if (seen[ident]) return;                 // a collision is a decision, not a guess
+    seen[ident] = true;
+    columns.push({field: f.name, name: ident, type: sqlType(f, true),
+                  offset: f.offset, bytes: COBOL.size(f) * f.occurs, note: ""});
+  });
+  return {plan: {
+    source: {copybook: table + ".cpy", record_bytes: layout.recordLen,
+             encoding: encoding || "cp037"},
+    policies: {identifier_style: "snake_case", trim_trailing_spaces: true,
+               null_when: ["low_values"], float_encoding: "ibm_hex",
+               occurs: "flatten"},
+    target: {dialect: "postgresql", table: normalise(table)},
+    unresolved: [],
+    tables: [{name: normalise(table), kind: "root", columns: columns}]}};
+}
+
+return {build: build, sqlType: sqlType, normalise: normalise};
+})();
+</script>
+<script id="payload" type="application/json">{"encodings":{"cp037":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2\u00e4\u00e0\u00e1\u00e3\u00e5\u00e7\u00f1\u00a2.<(+|&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec\u00df!$*);\u00ac-/\u00c2\u00c4\u00c0\u00c1\u00c3\u00c5\u00c7\u00d1\u00a6,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc`:#@'=\"\u00d8abcdefghi\u00ab\u00bb\u00f0\u00fd\u00fe\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u00a4\u00b5~stuvwxyz\u00a1\u00bf\u00d0\u00dd\u00de\u00ae^\u00a3\u00a5\u00b7\u00a9\u00a7\u00b6\u00bc\u00bd\u00be[]\u00af\u00a8\u00b4\u00d7{ABCDEFGHI\u00ad\u00f4\u00f6\u00f2\u00f3\u00f5}JKLMNOPQR\u00b9\u00fb\u00fc\u00f9\u00fa\u00ff\\\u00f7STUVWXYZ\u00b2\u00d4\u00d6\u00d2\u00d3\u00d50123456789\u00b3\u00db\u00dc\u00d9\u00da\u009f","cp500":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2\u00e4\u00e0\u00e1\u00e3\u00e5\u00e7\u00f1[.<(+!&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec\u00df]$*);^-/\u00c2\u00c4\u00c0\u00c1\u00c3\u00c5\u00c7\u00d1\u00a6,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc`:#@'=\"\u00d8abcdefghi\u00ab\u00bb\u00f0\u00fd\u00fe\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u00a4\u00b5~stuvwxyz\u00a1\u00bf\u00d0\u00dd\u00de\u00ae\u00a2\u00a3\u00a5\u00b7\u00a9\u00a7\u00b6\u00bc\u00bd\u00be\u00ac|\u00af\u00a8\u00b4\u00d7{ABCDEFGHI\u00ad\u00f4\u00f6\u00f2\u00f3\u00f5}JKLMNOPQR\u00b9\u00fb\u00fc\u00f9\u00fa\u00ff\\\u00f7STUVWXYZ\u00b2\u00d4\u00d6\u00d2\u00d3\u00d50123456789\u00b3\u00db\u00dc\u00d9\u00da\u009f","cp273":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2{\u00e0\u00e1\u00e3\u00e5\u00e7\u00f1\u00c4.<(+!&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec~\u00dc$*);^-/\u00c2[\u00c0\u00c1\u00c3\u00c5\u00c7\u00d1\u00f6,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc`:#\u00a7'=\"\u00d8abcdefghi\u00ab\u00bb\u00f0\u00fd\u00fe\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u00a4\u00b5\u00dfstuvwxyz\u00a1\u00bf\u00d0\u00dd\u00de\u00ae\u00a2\u00a3\u00a5\u00b7\u00a9@\u00b6\u00bc\u00bd\u00be\u00ac|\u203e\u00a8\u00b4\u00d7\u00e4ABCDEFGHI\u00ad\u00f4\u00a6\u00f2\u00f3\u00f5\u00fcJKLMNOPQR\u00b9\u00fb}\u00f9\u00fa\u00ff\u00d6\u00f7STUVWXYZ\u00b2\u00d4\\\u00d2\u00d3\u00d50123456789\u00b3\u00db]\u00d9\u00da\u009f","cp1026":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2\u00e4\u00e0\u00e1\u00e3\u00e5{\u00f1\u00c7.<(+!&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec\u00df\u011e\u0130*);^-/\u00c2\u00c4\u00c0\u00c1\u00c3\u00c5[\u00d1\u015f,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc\u0131:\u00d6\u015e'=\u00dc\u00d8abcdefghi\u00ab\u00bb}`\u00a6\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u00a4\u00b5\u00f6stuvwxyz\u00a1\u00bf]$@\u00ae\u00a2\u00a3\u00a5\u00b7\u00a9\u00a7\u00b6\u00bc\u00bd\u00be\u00ac|\u00af\u00a8\u00b4\u00d7\u00e7ABCDEFGHI\u00ad\u00f4~\u00f2\u00f3\u00f5\u011fJKLMNOPQR\u00b9\u00fb\\\u00f9\u00fa\u00ff\u00fc\u00f7STUVWXYZ\u00b2\u00d4#\u00d2\u00d3\u00d50123456789\u00b3\u00db\"\u00d9\u00da\u009f","cp1140":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2\u00e4\u00e0\u00e1\u00e3\u00e5\u00e7\u00f1\u00a2.<(+|&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec\u00df!$*);\u00ac-/\u00c2\u00c4\u00c0\u00c1\u00c3\u00c5\u00c7\u00d1\u00a6,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc`:#@'=\"\u00d8abcdefghi\u00ab\u00bb\u00f0\u00fd\u00fe\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u20ac\u00b5~stuvwxyz\u00a1\u00bf\u00d0\u00dd\u00de\u00ae^\u00a3\u00a5\u00b7\u00a9\u00a7\u00b6\u00bc\u00bd\u00be[]\u00af\u00a8\u00b4\u00d7{ABCDEFGHI\u00ad\u00f4\u00f6\u00f2\u00f3\u00f5}JKLMNOPQR\u00b9\u00fb\u00fc\u00f9\u00fa\u00ff\\\u00f7STUVWXYZ\u00b2\u00d4\u00d6\u00d2\u00d3\u00d50123456789\u00b3\u00db\u00dc\u00d9\u00da\u009f","latin1":"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u007f\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008a\u008b\u008c\u008d\u008e\u008f\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009a\u009b\u009c\u009d\u009e\u009f\u00a0\u00a1\u00a2\u00a3\u00a4\u00a5\u00a6\u00a7\u00a8\u00a9\u00aa\u00ab\u00ac\u00ad\u00ae\u00af\u00b0\u00b1\u00b2\u00b3\u00b4\u00b5\u00b6\u00b7\u00b8\u00b9\u00ba\u00bb\u00bc\u00bd\u00be\u00bf\u00c0\u00c1\u00c2\u00c3\u00c4\u00c5\u00c6\u00c7\u00c8\u00c9\u00ca\u00cb\u00cc\u00cd\u00ce\u00cf\u00d0\u00d1\u00d2\u00d3\u00d4\u00d5\u00d6\u00d7\u00d8\u00d9\u00da\u00db\u00dc\u00dd\u00de\u00df\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f0\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f7\u00f8\u00f9\u00fa\u00fb\u00fc\u00fd\u00fe\u00ff"},"sample_de":{"copybook":"000100* Kundenstammsatz - Datensatzbeschreibung (RECLN 60)\n000200* Geaendert 1998 durch Abt. Datenverarbeitung\n000300 01  KUNDEN-SATZ.\n000400     05  KUNDEN-NR             PIC 9(08).\n000500     05  KUNDEN-NAME           PIC X(20).\n000600     05  GEBURTSDATUM          PIC 9(08).\n000700     05  KONTOSTAND            PIC S9(08)V99.\n000800     05  WAEHRUNG              PIC X(03).\n000900     05  BEARBEITER-KUERZEL    PIC X(03).\n001000     05  STATUS-KZ             PIC X(01).\n001100         88  KUNDE-AKTIV       VALUE 'A'.\n001200         88  KUNDE-GESPERRT    VALUE 'G'.\n001300     05  FILLER                PIC X(07).\n","copybook_name":"KUNDE.cpy","data":"8fDw8PDw8PDUWtPTxdlrQMjB1eJAQEBAQEBAQPH59/jw+fL48PDw8fjx8PXyxsXk2eLDyMdAQEBAQEBA8fDw8PDw8PHiw8hKxsXZa0DB1dXBQEBAQEBAQPH5+PLx8PD38PDw8PDz+PP02cXk2ebFycdAQEBAQEBA8fDw8PDw8PLmxcni4mtA0eDZx0BAQEBAQEBAQPH5+fDx8PL28PDw8PDz9PX21sXk2eLDyMdAQEBAQEBA8fDw8PDw8PPH2dbi4tTB1dVrQOTjxUBAQEBAQPH59fnw8vH48PDw8fXy9PHxwcXk2ebFycFAQEBAQEBA8fDw8PDw8PTS4MjTxdlrQMJK2cLF00BAQEBAQPH5+Pjw9/H18PDw8fHz9PjwxsXk2ebFycFAQEBAQEBA8fDw8PDw8PXi49nB5OLia0DIxcnV6UBAQEBAQPH5+Pnw8fL38PDw8Pjy8Pn1w8Xk2dRa08FAQEBAQEBA8fDw8PDw8Pbg6cTF1MnZa0DGwePUwUBAQEBAQPH59vLw9PLw8PDw8PTy9Pf51MXk2eLDyMdAQEBAQEBA8fDw8PDw8Pfmxcmha0DS08Hk4kBAQEBAQEBAQPH59/jx8PL38PDw8PDx8fb518Xk2dRa08dAQEBAQEBA8fDw8PDw8PjUWtPTxdlrQMjB1eJAQEBAQEBAQPH5+PHw8fLy8PDw8PL49/Xy2MXk2ebFycdAQEBAQEBA8fDw8PDw8Pniw8hKxsXZa0DB1dXBQEBAQEBAQPH59/bw+fL38PDw8PL58fn50cXk2eLDyMdAQEBAQEBA8fDw8PDw8fDmxcni4mtA0eDZx0BAQEBAQEBAQPH5+fjw9PH38PDw8PLy8vbwwMXk2dRa08FAQEBAQEBA8fDw8PDw8fHH2dbi4tTB1dVrQOTjxUBAQEBAQPH59/Xw8vL48PDw8PLy9/L1x8Xk2dRa08FAQEBAQEBA8fDw8PDw8fLS4MjTxdlrQMJK2cLF00BAQEBAQPH5+fPw8fD38PDw8PDy9PL5xMXk2dRa08dAQEBAQEBA8fDw8PDw8fPi49nB5OLia0DIxcnV6UBAQEBAQPH59/Tx8vHz8PDw8PX0+fT3ycXk2ebFycFAQEBAQEBA8fDw8PDw8fTg6cTF1MnZa0DGwePUwUBAQEBAQPH5+fPw9fHx8PDw8PL48vH00MXk2eLDyMFAQEBAQEBA8fDw8PDw8fXmxcmha0DS08Hk4kBAQEBAQEBAQPH59/bw8vD18PDw8PHx9fn3wMXk2dRa08FAQEBAQEBA8fDw8PDw8fbUWtPTxdlrQMjB1eJAQEBAQEBAQPH59fPw+PL28PDw8Pfx9/D1yMXk2ebFycFAQEBAQEBA8fDw8PDw8ffiw8hKxsXZa0DB1dXBQEBAQEBAQPH59/jw+fD38PDw8fn28/LwxMXk2dRa08dAQEBAQEBA8fDw8PDw8fjmxcni4mtA0eDZx0BAQEBAQEBAQPH5+fHw9/D08PDw8PT49/Hzw8Xk2dRa08FAQEBAQEBA8fDw8PDw8fnH2dbi4tTB1dVrQOTjxUBAQEBAQPH59vfx8PHw8PDw8fn59Pf1ycXk2dRa08FAQEBAQEBA8fDw8PDw8vDS4MjTxdlrQMJK2cLF00BAQEBAQPH59vHw9/L48PDw8fDw9fD0xsXk2ebFycFAQEBAQEBA8fDw8PDw8vHi49nB5OLia0DIxcnV6UBAQEBAQPH59fLw8/D38PDw8Pbw8/j1xMXk2dRa08dAQEBAQEBA8fDw8PDw8vLg6cTF1MnZa0DGwePUwUBAQEBAQPH59vjw9/Dz8PDw8PPx9PL52MXk2dRa08FAQEBAQEBA8fDw8PDw8vPmxcmha0DS08Hk4kBAQEBAQEBAQPH59fDx8PHy8PDw8PTy+fL2wMXk2eLDyMFAQEBAQEBA8fDw8PDw8vTUWtPTxdlrQMjB1eJAQEBAQEBAQPH5+Pfw+PL38PDw8Pnz9vTyyMXk2eLDyMFAQEBAQEBA8fDw8PDw8vXiw8hKxsXZa0DB1dXBQEBAQEBAQPH5+fDw8/Hw8PDw8ff38fD1ycXk2ebFycFAQEBAQEBA8fDw8PDw8vbmxcni4mtA0eDZx0BAQEBAQEBAQPH5+fbw9PD28PDw8fP0+PX2wcXk2ebFycFAQEBAQEBA8fDw8PDw8vfH2dbi4tTB1dVrQOTjxUBAQEBAQPH5+fPw9/H28PDw8fDw+PjzxsXk2eLDyMFAQEBAQEBA8fDw8PDw8vjS4MjTxdlrQMJK2cLF00BAQEBAQPH59fbw8vDy8PDw8Pf48Pj5wMXk2eLDyMFAQEBAQEBA8fDw8PDw8vni49nB5OLia0DIxcnV6UBAQEBAQPH5+ffx8vHz8PDw8PH08vT1w8Xk2ebFycdAQEBAQEBA8fDw8PDw8/Dg6cTF1MnZa0DGwePUwUBAQEBAQPH59vjw+fD28PDw8fjy8/D5wMXk2dRa08FAQEBAQEBA8fDw8PDw8/Hmxcmha0DS08Hk4kBAQEBAQEBAQPH59vTw+PH48PDw8fHz8/f2ycXk2ebFycFAQEBAQEBA8fDw8PDw8/LUWtPTxdlrQMjB1eJAQEBAQEBAQPH59vfw9PD38PDw8fP38vT2w8Xk2dRa08dAQEBAQEBA8fDw8PDw8/Piw8hKxsXZa0DB1dXBQEBAQEBAQPH59/bw+PD48PDw8PP0+Pj20cXk2dRa08dAQEBAQEBA8fDw8PDw8/Tmxcni4mtA0eDZx0BAQEBAQEBAQPH59/Pw+fH58PDw8fnz8vb2w8Xk2dRa08dAQEBAQEBA8fDw8PDw8/XH2dbi4tTB1dVrQOTjxUBAQEBAQPH59fjw+PHx8PDw8fH08vPzwMXk2ebFycFAQEBAQEBA8fDw8PDw8/bS4MjTxdlrQMJK2cLF00BAQEBAQPH5+Pfw8fDx8PDw8Pb49vn4wsXk2eLDyMdAQEBAQEBA8fDw8PDw8/fi49nB5OLia0DIxcnV6UBAQEBAQPH59fLw8fLw8PDw8fD58PT2wcXk2eLDyMFAQEBAQEBA8fDw8PDw8/jg6cTF1MnZa0DGwePUwUBAQEBAQPH5+fbw9fHx8PDw8PH1+PT41cXk2dRa08FAQEBAQEBA8fDw8PDw8/nmxcmha0DS08Hk4kBAQEBAQEBAQPH59/jw+fHy8PDw8fP08vXxxMXk2ebFycFAQEBAQEBA8fDw8PDw9PDUWtPTxdlrQMjB1eJAQEBAQEBAQPH59/Hw9vDz8PDw8fLx8vj2xcXk2dRa08dAQEBAQEBA8fDw8PDw9PHiw8hKxsXZa0DB1dXBQEBAQEBAQPH59fHw+PH58PDw8PT28/b22cXk2ebFycdAQEBAQEBA8fDw8PDw9PLmxcni4mtA0eDZx0BAQEBAQEBAQPH59/Tx8PDx8PDw8fDy8vH2x8Xk2dRa08FAQEBAQEBA8fDw8PDw9PPH2dbi4tTB1dVrQOTjxUBAQEBAQPH5+fDw8vD58PDw8fb5+fT4wMXk2ebFycdAQEBAQEBA8fDw8PDw9PTS4MjTxdlrQMJK2cLF00BAQEBAQPH59/Tx8vLz8PDw8Pn18vP4wsXk2eLDyMdAQEBAQEBA8fDw8PDw9PXi49nB5OLia0DIxcnV6UBAQEBAQPH5+PTw8vH38PDw8fP39fXyxcXk2dRa08dAQEBAQEBA8fDw8PDw9Pbg6cTF1MnZa0DGwePUwUBAQEBAQPH5+Pjw8vH28PDw8PT09PL308Xk2ebFycFAQEBAQEBA8fDw8PDw9Pfmxcmha0DS08Hk4kBAQEBAQEBAQPH5+PHx8PLy8PDw8fjw8fH2wcXk2eLDyMFAQEBAQEBA8fDw8PDw9PjUWtPTxdlrQMjB1eJAQEBAQEBAQPH59/Pw9fD18PDw8fH59fP0wsXk2dRa08FAQEBAQEBA8fDw8PDw9Pniw8hKxsXZa0DB1dXBQEBAQEBAQPH5+fjw9vLy8PDw8fjy9ff1xMXk2eLDyMFAQEBAQEBA8fDw8PDw9fDmxcni4mtA0eDZx0BAQEBAQEBAQPH59/Dw9/Ly8PDw8PHy9vT5yMXk2ebFycdAQEBAQEBA8fDw8PDw9fHH2dbi4tTB1dVrQOTjxUBAQEBAQPH5+fjw9PD38PDw8PT28fD0x8Xk2ebFycdAQEBAQEBA8fDw8PDw9fLS4MjTxdlrQMJK2cLF00BAQEBAQPH59vPw8/D18PDw8Pf08fH2yMXk2dRa08FAQEBAQEBA8fDw8PDw9fPi49nB5OLia0DIxcnV6UBAQEBAQPH59vfw8/D08PDw8Pby9vbyxMXk2eLDyMFAQEBAQEBA8fDw8PDw9fTg6cTF1MnZa0DGwePUwUBAQEBAQPH59/bw9/Lx8PDw8Pf5+fnzyMXk2ebFycdAQEBAQEBA8fDw8PDw9fXmxcmha0DS08Hk4kBAQEBAQEBAQPH5+fXx8PH18PDw8PPw8Pj2xsXk2dRa08dAQEBAQEBA8fDw8PDw9fbUWtPTxdlrQMjB1eJAQEBAQEBAQPH5+Pjw8fLy8PDw8fL38fX3x8Xk2ebFycdAQEBAQEBA8fDw8PDw9ffiw8hKxsXZa0DB1dXBQEBAQEBAQPH59vnx8fL28PDw8Pnx8PD5x8Xk2ebFycFAQEBAQEBA8fDw8PDw9fjmxcni4mtA0eDZx0BAQEBAQEBAQPH59/Xw+PD38PDw8PTz+PH41MXk2eLDyMFAQEBAQEBA8fDw8PDw9fnH2dbi4tTB1dVrQOTjxUBAQEBAQPH59fnw8fLx8PDw8PLx8ffz2MXk2dRa08dAQEBAQEBA8fDw8PDw9vDS4MjTxdlrQMJK2cLF00BAQEBAQPH59fTx8fD38PDw8PDw8fb01sXk2eLDyMdAQEBAQEBA8fDw8PDw9vHi49nB5OLia0DIxcnV6UBAQEBAQPH59vHx8vDx8PDw8fP49/byx8Xk2ebFycFAQEBAQEBA8fDw8PDw9vLg6cTF1MnZa0DGwePUwUBAQEBAQPH59vHw9PD58PDw8fT09vT2wMXk2ebFycFAQEBAQEBA8fDw8PDw9vPmxcmha0DS08Hk4kBAQEBAQEBAQPH59/Xx8vD48PDw8PL48fn31sXk2ebFycdAQEBAQEBA8fDw8PDw9vTUWtPTxdlrQMjB1eJAQEBAQEBAQPH59fjw+PH18PDw8PDw9/jw2MXk2dRa08dAQEBAQEBA8fDw8PDw9vXiw8hKxsXZa0DB1dXBQEBAQEBAQPH5+PXx8PLx8PDw8fb5+PPwwsXk2eLDyMdAQEBAQEBA8fDw8PDw9vbmxcni4mtA0eDZx0BAQEBAQEBAQPH59/Dx8fD38PDw8PL18vX42MXk2ebFycFAQEBAQEBA8fDw8PDw9vfH2dbi4tTB1dVrQOTjxUBAQEBAQPH59vPw9PHz8PDw8fn18fLzw8Xk2eLDyMdAQEBAQEBA8fDw8PDw9vjS4MjTxdlrQMJK2cLF00BAQEBAQPH59vbx8vL48PDw8PT28Pj40MXk2ebFycFAQEBAQEBA8fDw8PDw9vni49nB5OLia0DIxcnV6UBAQEBAQPH59fLw+PHx8PDw8Pj39ff1xcXk2eLDyMdAQEBAQEBA8fDw8PDw9/Dg6cTF1MnZa0DGwePUwUBAQEBAQPH59fHw9PL28PDw8fb2+Pj3wsXk2eLDyMFAQEBAQEBA8fDw8PDw9/Hmxcmha0DS08Hk4kBAQEBAQEBAQPH59vHw+fHx8PDw8fLx9vT1ycXk2dRa08dAQEBAQEBA8fDw8PDw9/LUWtPTxdlrQMjB1eJAQEBAQEBAQPH59fnw+fL08PDw8Pf59fXzwcXk2ebFycdAQEBAQEBA8fDw8PDw9/Piw8hKxsXZa0DB1dXBQEBAQEBAQPH5+PHx8PLz8PDw8PL49Pn00cXk2dRa08dAQEBAQEBA8fDw8PDw9/Tmxcni4mtA0eDZx0BAQEBAQEBAQPH5+PPw+fHw8PDw8fX39/j5ycXk2ebFycFAQEBAQEBA8fDw8PDw9/XH2dbi4tTB1dVrQOTjxUBAQEBAQPH5+PPw+fL38PDw8ff2+PDzwMXk2eLDyMdAQEBAQEBA8fDw8PDw9/bS4MjTxdlrQMJK2cLF00BAQEBAQPH5+fLw9/L48PDw8fb39fH3xcXk2ebFycFAQEBAQEBA8fDw8PDw9/fi49nB5OLia0DIxcnV6UBAQEBAQPH59vnw8/H48PDw8Pjx8PX2xcXk2ebFycdAQEBAQEBA8fDw8PDw9/jg6cTF1MnZa0DGwePUwUBAQEBAQPH59vLw9/H48PDw8PLx9PL52MXk2dRa08dAQEBAQEBA8fDw8PDw9/nmxcmha0DS08Hk4kBAQEBAQEBAQPH59fHw+fDy8PDw8Pf58PD0xMXk2eLDyMFAQEBAQEBA","data_name":"KUNDE.dat","encoding":"cp273","credit":"80 German customer records in cp273"}}</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById("payload").textContent);
+var TABLES = D.encodings;
+var MAX_RECORDS = 5000, MAX_BYTES = 64 * 1024 * 1024, SHOW_ROWS = 200;
+
+var cpyText = null, cpyName = "", datBytes = null, datName = "";
+var cpyAfterData = false, records = [], layout = null;
+
+function el(t, c, x){ var e = document.createElement(t);
+  if(c) e.className = c; if(x != null) e.textContent = x; return e; }
+function msg(t, bad){ var m = document.getElementById("run-msg");
+  m.textContent = t || ""; m.className = "rmsg" + (bad ? " bad" : ""); }
+function pane(id){ return document.getElementById("tab-" + id); }
+function badge(id, text, crit){
+  var b = document.getElementById("b-" + id);
+  b.textContent = text == null ? "" : String(text);
+  b.className = "badge" + (crit ? " crit" : "");
+}
+
+function setName(which, name, bytes){
+  document.getElementById("name-" + which).textContent =
+    name ? name + (bytes != null ? "  (" + bytes.toLocaleString() + " bytes)" : "") : "";
+  document.getElementById("drop-" + which).className = "drop" + (name ? " filled" : "");
+  document.getElementById("clear-" + which).hidden = !name;
+  var d = document.getElementById("drop-dat");
+  if(datBytes && cpyAfterData) d.classList.add("stale"); else d.classList.remove("stale");
+}
+
+function clearOne(which){
+  if(which === "cpy"){ cpyText = null; cpyName = ""; layout = null; records = []; }
+  else { datBytes = null; datName = ""; cpyAfterData = false; }
+  document.getElementById("in-" + which).value = "";
+  setName(which, "");
+  ["layout","findings","records","schema"].forEach(function(t){
+    pane(t).textContent = ""; badge(t, null); });
+  document.getElementById("recordpick").hidden = true;
+  msg("");
+}
+function clearAll(){ clearOne("cpy"); clearOne("dat");
+  document.getElementById("in-reclen").value = ""; msg("Cleared."); }
+
+document.getElementById("in-cpy").onchange = function(e){
+  var f = e.target.files[0]; if(!f) return;
+  var r = new FileReader();
+  r.onload = function(){
+    cpyText = r.result; cpyName = f.name; cpyAfterData = !!datBytes;
+    setName("cpy", f.name, f.size);
+    msg(cpyAfterData ? "New copybook. " + datName + " is still loaded — remove it "
+                     + "if you meant to start over." : "");
+    analyse();
+  };
+  r.readAsText(f);
+};
+document.getElementById("in-dat").onchange = function(e){
+  var f = e.target.files[0]; if(!f) return;
+  if(f.size > MAX_BYTES){ msg("larger than 64 MB — analyse a slice of it", true); return; }
+  var r = new FileReader();
+  r.onload = function(){
+    datBytes = new Uint8Array(r.result); datName = f.name; cpyAfterData = false;
+    setName("dat", f.name, f.size); msg(""); analyse();
+  };
+  r.readAsArrayBuffer(f);
+};
+document.getElementById("run-analyze").onclick = function(){ analyse(); };
+document.getElementById("run-clear").onclick = clearAll;
+document.getElementById("clear-cpy").onclick = function(){ clearOne("cpy"); };
+document.getElementById("clear-dat").onclick = function(){ clearOne("dat"); };
+document.getElementById("in-enc").onchange = function(){ if(cpyText) analyse(); };
+document.getElementById("in-reclen").onchange = function(){ if(cpyText) analyse(); };
+document.getElementById("in-record").onchange = function(){ if(cpyText) analyse(); };
+document.getElementById("run-sample").onclick = function(){
+  var s = D.sample_de;
+  cpyText = s.copybook; cpyName = s.copybook_name;
+  var bin = atob(s.data); datBytes = new Uint8Array(bin.length);
+  for(var i = 0; i < bin.length; i++) datBytes[i] = bin.charCodeAt(i);
+  datName = s.data_name; cpyAfterData = false;
+  setName("cpy", cpyName, cpyText.length); setName("dat", datName, datBytes.length);
+  document.getElementById("in-enc").value = s.encoding || "cp037";
+  document.getElementById("in-reclen").value = "";
+  msg("Loaded " + s.credit + ". Switch the code page to cp037 and watch the names "
+      + "break while the money stays right.");
+  analyse();
+};
+
+Array.prototype.forEach.call(document.querySelectorAll("[data-tab]"), function(b){
+  b.onclick = function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tab]"), function(o){
+      o.setAttribute("aria-pressed", o === b ? "true" : "false");
+      pane(o.getAttribute("data-tab")).hidden = o !== b;
+    });
+  };
+});
+
+function fatal(where, message){
+  var d = el("div", "find critical"), h = el("div", "fhead");
+  h.appendChild(el("span", "chip critical", "refused"));
+  h.appendChild(el("span", "fcode", where));
+  d.appendChild(h); d.appendChild(el("p", "fclaim", message));
+  pane("layout").textContent = ""; pane("layout").appendChild(d);
+  return d;
+}
+
+function analyse(){
+  ["layout","findings","records","schema"].forEach(function(t){
+    pane(t).textContent = ""; badge(t, null); });
+  if(!cpyText){
+    pane("layout").appendChild(el("p", "empty",
+      "Choose a copybook. A data file is optional — without one you get the "
+      + "record layout; with one you get what the bytes actually say."));
+    return;
+  }
+
+  var all;
+  try { all = COBOL.parseRecords ? COBOL.parseRecords(cpyText) : [COBOL.parse(cpyText)]; }
+  catch(err){ fatal("COPYBOOK", err.message); return; }
+
+  var pick = document.getElementById("recordpick"),
+      sel = document.getElementById("in-record");
+  if(all.length > 1){
+    if(sel.options.length !== all.length){
+      sel.textContent = "";
+      all.forEach(function(r, i){
+        var o = document.createElement("option");
+        o.value = String(i); o.textContent = r.root.name + "  (" + r.recordLen + "B)";
+        sel.appendChild(o);
+      });
+    }
+    pick.hidden = false;
+    layout = all[Math.min(parseInt(sel.value, 10) || 0, all.length - 1)];
+  } else { pick.hidden = true; sel.textContent = ""; layout = all[0]; }
+
+  var override = parseInt(document.getElementById("in-reclen").value, 10);
+  if(override > 0) layout.recordLen = override;
+  var enc = document.getElementById("in-enc").value;
+
+  renderLayout(override);
+  if(!datBytes){
+    pane("findings").appendChild(el("p", "empty",
+      "Add a data file to measure the layout against it."));
+    pane("records").appendChild(el("p", "empty", "Add a data file to decode records."));
+    renderSchema(enc);
+    msg("Layout parsed.");
+    return;
+  }
+
+  SCAN.setTable(TABLES[enc]);
+  var found = SCAN.recordOffsets(datBytes, layout.recordLen);
+  if(found.recfm === "mismatch"){ renderMismatch(); renderSchema(enc); return; }
+
+  var res = SCAN.scan(layout, datBytes, MAX_RECORDS);
+  renderFindings(SCAN.findings(layout, res), res, found);
+  renderRecords(found, enc);
+  renderSchema(enc);
+  msg(found.offsets.length.toLocaleString() + " records"
+      + (found.recfm === "vb" ? ", RECFM=VB" : "") + ", " + enc + ".");
+}
+
+function renderLayout(override){
+  var host = pane("layout");
+  host.appendChild(el("div", "eyebrow", cpyName + "  ·  " + layout.recordLen
+    + "-byte record" + (override > 0 ? " (overridden)" : "") + "  ·  "
+    + layout.fields.length + " fields"));
+  if(layout.isFragment)
+    host.appendChild(el("p", "empty", "No 01 level — this is a fragment, meant to "
+      + "be COPY'd into a record declared elsewhere."));
+  var t = document.createElement("table"); t.className = "rec";
+  var hr = document.createElement("tr");
+  ["off","len","name","picture","usage"].forEach(function(x){
+    var th = document.createElement("th"); th.textContent = x; hr.appendChild(th); });
+  t.appendChild(hr);
+  layout.fields.forEach(function(f){
+    var tr = document.createElement("tr");
+    [[f.offset,"n"],[COBOL.size(f)*f.occurs,"n"],[f.name,""],
+     [f.pic ? f.pic.raw : "—",""],[f.usage,""]].forEach(function(c){
+      var td = document.createElement("td"); td.className = c[1];
+      td.textContent = c[0]; tr.appendChild(td); });
+    t.appendChild(tr);
+  });
+  host.appendChild(t);
+  badge("layout", layout.fields.length);
+}
+
+function renderMismatch(){
+  var d = el("div", "find critical"), h = el("div", "fhead");
+  h.appendChild(el("span", "chip critical", "critical"));
+  h.appendChild(el("span", "fcode", "LAYOUT_MISMATCH"));
+  d.appendChild(h);
+  d.appendChild(el("p", "fclaim", "the file is not a whole multiple of this "
+    + "copybook's record length, and its descriptor words do not chain to the "
+    + "end either. This copybook does not describe this file."));
+  var size = datBytes.length, rl = layout.recordLen;
+  d.appendChild(el("div", "fev", "file_bytes=" + size.toLocaleString()
+    + "   record_length=" + rl + "   remainder=" + (size % rl)));
+  [[4,"a 4-byte record descriptor word (RECFM=VB)"],[8,"a block and record descriptor word"],
+   [1,"a one-byte line terminator"],[2,"a two-byte line terminator (CRLF)"]].forEach(function(x){
+    if(size % (rl + x[0]) === 0)
+      d.appendChild(el("div","fev","— " + rl + " + " + x[0] + " = " + (rl + x[0])
+        + " divides it exactly into " + (size/(rl+x[0])).toLocaleString()
+        + " records, which is this record plus " + x[1]));
+  });
+  var exact = [];
+  for(var i = 8; i <= Math.min(4096, size) && exact.length < 14; i++)
+    if(size % i === 0) exact.push(i);
+  if(exact.length) d.appendChild(el("div","fev",
+    "— record lengths that would divide this file exactly: " + exact.join(", ")
+    + ".  Set one in Record length on the left."));
+  var hex = [];
+  for(var j = 0; j < Math.min(8, size); j++)
+    hex.push(("0" + datBytes[j].toString(16).toUpperCase()).slice(-2));
+  d.appendChild(el("div","fev","— first bytes " + hex.join(" ")));
+  pane("findings").appendChild(d);
+  badge("findings", "!", true);
+  document.querySelector('[data-tab="findings"]').click();
+  msg("This copybook does not describe this file.", true);
+}
+
+function renderFindings(found, res, spans){
+  var host = pane("findings");
+  host.appendChild(el("div","eyebrow", datName + "  ·  "
+    + spans.offsets.length.toLocaleString() + " records"
+    + (spans.recfm === "vb" ? "  ·  RECFM=VB, descriptor words stripped" : "")));
+  if(!found.length){
+    host.appendChild(el("p","empty","No findings. Every field decodes cleanly and "
+      + "nothing in the data contradicts the copybook."));
+    badge("findings", 0); return;
+  }
+  var crit = 0;
+  found.forEach(function(f){
+    if(f.severity === "critical") crit++;
+    var d = el("div","find " + f.severity), h = el("div","fhead");
+    h.appendChild(el("span","chip " + f.severity, f.severity));
+    h.appendChild(el("span","fcode", f.code));
+    h.appendChild(el("span","ffield", f.field));
+    d.appendChild(h);
+    d.appendChild(el("p","fclaim", f.claim));
+    var ev = Object.keys(f.evidence).map(function(k){ return k + "=" + f.evidence[k]; }).join("   ");
+    if(ev) d.appendChild(el("div","fev", ev + "   ·   over " + f.records.toLocaleString() + " records"));
+    if(f.impact) d.appendChild(el("div","fimp", f.impact));
+    host.appendChild(d);
+  });
+  badge("findings", found.length, crit > 0);
+}
+
+function renderRecords(spans, enc){
+  var host = pane("records"), n = Math.min(SHOW_ROWS, spans.offsets.length);
+  host.appendChild(el("div","eyebrow","first " + n.toLocaleString() + " of "
+    + spans.offsets.length.toLocaleString() + " records, decoded here"));
+  var cols = layout.fields.filter(function(f){ return f.name.toUpperCase() !== "FILLER"; });
+  var t = document.createElement("table"); t.className = "rec";
+  var hr = document.createElement("tr");
+  cols.forEach(function(f){
+    var th = document.createElement("th"); th.textContent = f.name; hr.appendChild(th); });
+  t.appendChild(hr);
+  for(var r = 0; r < n; r++){
+    var tr = document.createElement("tr"), off = spans.offsets[r];
+    cols.forEach(function(f){
+      var td = document.createElement("td");
+      td.className = f.pic && f.pic.numeric ? "n" : "";
+      td.textContent = SCAN.readValue(f, datBytes, off);
+      tr.appendChild(td);
+    });
+    t.appendChild(tr);
+  }
+  host.appendChild(t);
+  badge("records", spans.offsets.length.toLocaleString());
+}
+
+function renderSchema(enc){
+  var host = pane("schema");
+  var built = PLAN.build(layout, cpyName.replace(/\.[^.]+$/, ""), enc);
+  var pre = el("pre","out");
+  pre.textContent = DDL.render(built, []);
+  host.appendChild(pre);
+  host.appendChild(el("p","empty",
+    "Columns and types only. The decisions a copybook cannot settle — which "
+    + "REDEFINES branch is live, what the key is — are not guessed here any more "
+    + "than they are on the command line. Run `overpunch plan` for the full "
+    + "version, which refuses until you answer them."));
+}
+
+clearAll();
+})();
+</script>
+</body>
+</html>

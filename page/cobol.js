@@ -153,10 +153,14 @@ function size(f){
   return total;
 }
 
-function parse(text){
+function parse(text){ return parseRecords(text)[0]; }
+
+/* An 01 is a record boundary, not a continuation. A copybook may declare
+   several records - 72 of 885 in one real library do, one of them 24. */
+function parseRecords(text){
   checkTruncation(text);
   var fmt = detectFormat(text), fragment = false;
-  var root=null, stack=[], lastElem=null;
+  var roots=[], root=null, stack=[], lastElem=null;
   statements(text, fmt).forEach(function(stmt){
     var tok = tokens(stmt);
     if(!tok.length || !/^\d+$/.test(tok[0])) return;
@@ -208,14 +212,19 @@ function parse(text){
       idx++;
     }
 
+    if(level === 1){
+      root = f; roots.push(f); stack = [f];
+      if(f.pic) lastElem = f;
+      return;
+    }
     if(root === null){
-      if(level === 1){ root = f; stack = [f]; if(f.pic) lastElem = f; return; }
       // a fragment: fields meant to be COPY'd into a record declared elsewhere
       fragment = true;
       root = {level:0, name:"<fragment>", pic:null, usage:"DISPLAY", occurs:1,
               occursDependingOn:null, redefines:null, redefinesExternal:false,
-              signSeparate:false, signLeading:false, conditions:{}, children:[],
-              offset:0, parent:null};
+              signSeparate:false, signLeading:false, conditions:{},
+              conditionRanges:{}, children:[], offset:0, parent:null};
+      roots.push(root);
       stack = [root];
       root.children.push(f); stack.push(f);
       if(f.pic) lastElem = f;
@@ -228,8 +237,10 @@ function parse(text){
     }
     if(f.pic) lastElem = f;
   });
-  if(root === null) throw new Error("no 01-level record found");
+  if(!roots.length) throw new Error("no record definition found: no 01 level "+
+    "and no fields to make a record from");
 
+  function finish(root){
   function find(node, want){
     if(node.name.toUpperCase() === want.toUpperCase()) return node;
     for(var i=0;i<node.children.length;i++){
@@ -276,11 +287,16 @@ function parse(text){
     throw new Error("field offsets reach byte "+reach+" but the record is "+
                     recordLen+" bytes; the layout disagrees with itself");
 
-  return {root:root, recordLen:recordLen, fields:leaves, isFragment:fragment,
+  return {root:root, recordLen:recordLen, fields:leaves,
+          isFragment:fragment && root.level === 0,
           find:function(n){return find(root,n);}, size:size};
+  }
+
+  return roots.map(finish);
 }
 
-return {parse: parse, parsePicture: parsePicture, statements: statements,
+return {parse: parse, parseRecords: parseRecords,
+        parsePicture: parsePicture, statements: statements,
         elementarySize: elementarySize, size: size,
         detectFormat: detectFormat, terminator: terminator};
 })();
