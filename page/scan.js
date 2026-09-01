@@ -1,0 +1,193 @@
+/* The same finding rules as src/overpunch/findings.py, running in the browser.
+
+   Kept as an independent implementation on purpose. page/verify_js.js runs both
+   over the same files and requires the finding sets to match; two implementations
+   disagreeing is the cheapest bug detector this project has. */
+var SCAN = (function(){
+"use strict";
+
+var CP037 = null;                       // injected: 256-char decode table
+var POS = "{ABCDEFGHI", NEG = "}JKLMNOPQR";
+
+function setTable(t){ CP037 = t; }
+
+function text(bytes, off, len){
+  var o = "";
+  for(var i = off; i < off + len; i++) o += CP037[bytes[i]];
+  return o;
+}
+function splitSign(t){
+  if(!t.length) return {d:"", s:1};
+  var last = t.charAt(t.length-1), i;
+  if(last === "-" || last === "+") return {d:t.slice(0,-1), s:last==="-"?-1:1};
+  i = NEG.indexOf(last); if(i>=0) return {d:t.slice(0,-1)+i, s:-1};
+  i = POS.indexOf(last); if(i>=0) return {d:t.slice(0,-1)+i, s:1};
+  return {d:t, s:1};
+}
+function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
+
+function fieldLen(f){ return COBOL.size(f) * f.occurs; }
+
+function observe(st, f, bytes, off){
+  st.examined++;
+  var len = fieldLen(f), t = text(bytes, off + f.offset, len);
+  if(t.indexOf("�") >= 0) st.undecodable++;
+
+  if(!f.pic || !f.pic.numeric){
+    st.distinct[t] = (st.distinct[t]||0) + 1;
+    if(!t.trim()) st.blank++;
+    return;
+  }
+  if(f.usage === "COMP-3"){
+    var bad = false;
+    for(var i = off+f.offset; i < off+f.offset+len-1; i++){
+      if((bytes[i]>>4) > 9 || (bytes[i]&15) > 9) bad = true;
+    }
+    var lo = bytes[off+f.offset+len-1] & 15;
+    if(lo !== 12 && lo !== 13 && lo !== 15) bad = true;
+    if(bad) st.invalidPacked++;
+    return;
+  }
+  if(f.usage !== "DISPLAY") return;
+
+  var last = t.length ? t.charAt(t.length-1) : "";
+  if(last && !/[0-9]/.test(last)){
+    st.nonDigitLast++;
+    var sp = splitSign(t);
+    if(sp.s < 0) st.negative++; else st.positive++;
+  }
+  var d = digitsOf(splitSign(t).d);
+  if(!t.trim()) st.blank++;
+  if(d && /^0+$/.test(d)) st.allZero++;
+  st.widest = Math.max(st.widest, d.replace(/^0+/,"").length);
+
+  var sp2 = splitSign(t), v = parseInt(digitsOf(sp2.d),10);
+  var div = Math.pow(10, f.pic.scale||0);
+  var signed = (f.pic.signed ? sp2.s : 1) * v / div;
+  st.sumCorrect += signed;
+  st.sumAbs += Math.abs(signed);
+  st.sumNaive += parseInt(digitsOf(t),10);
+  if(!f.pic.signed) st.sumForced += sp2.s * v / div;
+}
+
+function scan(layout, bytes, limit){
+  var stats = {}, n = Math.floor(bytes.length / layout.recordLen);
+  if(limit) n = Math.min(n, limit);
+  layout.fields.forEach(function(f){
+    stats[f.name] = {examined:0, blank:0, allZero:0, nonDigitLast:0, negative:0,
+                     positive:0, widest:0, distinct:{}, undecodable:0,
+                     invalidPacked:0, sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
+  });
+  for(var r = 0; r < n; r++){
+    var off = r * layout.recordLen;
+    layout.fields.forEach(function(f){ observe(stats[f.name], f, bytes, off); });
+  }
+  return {stats:stats, records:n};
+}
+
+function money(x){ return x.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pct(a,b){ return b ? (100*a/b).toFixed(1)+"%" : "n/a"; }
+
+function findings(layout, res){
+  var out = [];
+  layout.fields.forEach(function(f){
+    var st = res.stats[f.name];
+    if(!st || !st.examined) return;
+    var p = f.pic, isFiller = f.name.toUpperCase() === "FILLER";
+    var signedBytes = p && p.numeric && f.usage === "DISPLAY" && (st.negative + st.positive);
+
+    if(signedBytes){
+      if(p.signed && st.negative){
+        out.push({code:"TRAILING_SIGN", severity:"critical", field:f.name,
+          claim:"the last byte carries the sign, not a digit; dropping it inverts the negative records",
+          evidence:{negative:st.negative.toLocaleString(), positive:st.positive.toLocaleString(),
+                    share_negative:pct(st.negative, st.examined)},
+          records:st.examined,
+          impact:"correct total "+money(st.sumCorrect)+"; sign ignored "+money(st.sumAbs)+
+                 " (overstated by "+money(st.sumAbs-st.sumCorrect)+")"});
+      } else if(p.signed){
+        out.push({code:"SIGN_PRESENT_ALL_POSITIVE", severity:"info", field:f.name,
+          claim:"the final byte is a sign, not a digit, but every record in this file is positive; a digits-only read happens to agree here and will stop agreeing the first time a credit appears",
+          evidence:{positive:st.positive.toLocaleString(), negative:"0"}, records:st.examined});
+      } else {
+        out.push({code:"UNDECLARED_SIGN", severity:"critical", field:f.name,
+          claim:"copybook declares this field unsigned (PIC 9) but the bytes carry a sign in the final position; the copybook is wrong about the data",
+          evidence:{signed_records:signedBytes.toLocaleString(), share:pct(signedBytes, st.examined),
+                    declared:p.raw}, records:st.examined,
+          impact:"read as declared "+money(st.sumCorrect)+"; honouring the sign "+
+                 money(st.sumForced)+" (difference "+money(st.sumCorrect-st.sumForced)+")"});
+      }
+    }
+    if(p && p.numeric && p.scale && f.usage === "DISPLAY"){
+      out.push({code:"IMPLIED_DECIMAL", severity:"warn", field:f.name,
+        claim:p.scale+" implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^"+p.scale+" too large",
+        evidence:{declared:p.raw, scale:p.scale}, records:st.examined,
+        impact:"correct total "+money(st.sumCorrect)+"; digits-only read "+
+               st.sumNaive.toLocaleString()});
+    }
+    if(p && p.numeric && p.scale === 0 && st.widest && st.widest <= (p.digits - p.scale) - 1){
+      out.push({code:"WIDTH_UNDERFILL", severity:"warn", field:f.name,
+        claim:"declared "+(p.digits-p.scale)+" integer digits but no record uses more than "+st.widest+"; the source may be narrower than the copybook, or values may be truncated",
+        evidence:{declared_digits:p.digits-p.scale, widest_observed:st.widest},
+        records:st.examined});
+    }
+    if(isFiller && st.blank < st.examined){
+      out.push({code:"POPULATED_FILLER", severity:"warn",
+        field:"FILLER @ offset "+f.offset,
+        claim:"declared FILLER but carries data; something is in this field that the copybook does not describe",
+        evidence:{non_blank:(st.examined-st.blank).toLocaleString(),
+                  distinct_values:Object.keys(st.distinct).length}, records:st.examined});
+    }
+    if(st.blank === st.examined || st.allZero === st.examined){
+      out.push({code:"NEVER_POPULATED", severity:"info", field:f.name,
+        claim:"field is blank or zero in every record examined",
+        evidence:{blank:st.blank.toLocaleString(), zero:st.allZero.toLocaleString()},
+        records:st.examined});
+    }
+    if(st.invalidPacked){
+      out.push({code:"INVALID_PACKED", severity:"critical", field:f.name,
+        claim:"declared COMP-3 but the nibbles are not valid packed decimal; the usage or the offset is wrong",
+        evidence:{bad_records:st.invalidPacked.toLocaleString(),
+                  share:pct(st.invalidPacked, st.examined)}, records:st.examined});
+    }
+    if(st.undecodable && st.undecodable > st.examined * 0.01){
+      out.push({code:"ENCODING_SUSPECT", severity:"warn", field:f.name,
+        claim:"bytes do not decode cleanly in the chosen code page",
+        evidence:{undecodable:st.undecodable.toLocaleString(),
+                  share:pct(st.undecodable, st.examined)}, records:st.examined});
+    }
+  });
+
+  layout.fields.forEach(function(f){
+    var keys = Object.keys(f.conditions);
+    if(!keys.length) return;
+    var st = res.stats[f.name], claimed = {}, owner = {};
+    keys.forEach(function(k){ f.conditions[k].forEach(function(v){
+      claimed[v] = (claimed[v]||0)+1; (owner[v]=owner[v]||[]).push(k); }); });
+    Object.keys(claimed).forEach(function(v){
+      if(claimed[v] > 1) out.push({code:"AMBIGUOUS_CONDITION", severity:"critical",
+        field:f.name,
+        claim:"value '"+v+"' is claimed by "+claimed[v]+" different condition names; which one is meant cannot be settled from the copybook or the data",
+        evidence:{value:v, names:owner[v].join(", ")}, records:st?st.examined:0});
+    });
+    if(st){
+      var extra = {};
+      Object.keys(st.distinct).forEach(function(v){
+        var t = v.trim(); if(t && !(t in claimed)) extra[t] = st.distinct[v]; });
+      var names = Object.keys(extra);
+      if(names.length) out.push({code:"UNCOVERED_VALUE", severity:"warn", field:f.name,
+        claim:"values appear in the data that no 88-level accounts for; code that switches on the declared conditions will fall through for these records",
+        evidence:{values:names.slice(0,5).map(function(v){return "'"+v+"' x"+extra[v];}).join(", "),
+                  records_affected:names.reduce(function(a,v){return a+extra[v];},0).toLocaleString()},
+        records:st.examined});
+    }
+  });
+
+  var order = {critical:0, warn:1, info:2};
+  out.sort(function(a,b){
+    return (order[a.severity]-order[b.severity]) || a.field.localeCompare(b.field); });
+  return out;
+}
+
+return {setTable:setTable, scan:scan, findings:findings, splitSign:splitSign, text:text};
+})();

@@ -1,4 +1,4 @@
-.PHONY: demo test page scan explain clean
+.PHONY: demo test page verify-js scan explain clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -18,6 +18,10 @@ demo: $(VENV)
 page: $(VENV)
 	$(PY) demo/make_synthetic.py --records 100000 >/dev/null
 	$(PY) page/build.py
+
+verify-js: $(VENV)
+	$(PY) page/reference.py
+	node page/verify_js.js
 
 test: $(VENV)
 	$(PY) -m pytest -q

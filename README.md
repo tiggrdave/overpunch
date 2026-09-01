@@ -313,6 +313,31 @@ running `overpunch` against `demo/` at build time. If the tool changes its
 answers, the page changes with it — which is the only way a demo stays honest.
 The build refuses to write a page containing an absolute local path.
 
+## Two implementations, held to the same answers
+
+The page analyses files **in your browser**. That is not a convenience: the data
+this tool exists for — benefit records, tax extracts, card transactions — is
+exactly the data nobody may upload to a website, so the analysis has to come to
+the bytes rather than the other way round. Disconnect your network and it still
+works.
+
+Which means the copybook parser and the rules exist twice: `src/overpunch/` in
+Python and `page/cobol.js` + `page/scan.js` in JavaScript. They are written
+separately, on purpose, and held to the same answers:
+
+```bash
+make verify-js
+```
+
+runs both over every copybook and data file in the repository and fails on any
+disagreement — record length, field offsets, finding codes, severities, and the
+exact money totals in the impact lines. Currently **10 copybooks, 133 fields,
+5 data files, 35 findings, 0 disagreements**.
+
+This is not ceremony. Writing the decoder a second time in a different language
+is what found the digit-dropping bug in the first one; neither implementation's
+own tests had caught it.
+
 ## Licence
 
 Apache-2.0.

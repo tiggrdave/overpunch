@@ -58,6 +58,31 @@ def pack_plan(copybook: Path, resolutions=None, policies=None) -> dict:
             "record_bytes": layout.record_length()}
 
 
+SAMPLE_RECORDS_IN_UPLOADER = 60
+
+
+def sample_case() -> dict:
+    """A slice of AWS CardDemo, so the uploader has something real to chew on.
+
+    Apache-2.0, from aws-samples/aws-mainframe-modernization-carddemo. Only a
+    slice is embedded, and the fetch script downloads the rest on demand.
+    """
+    cpy = DEMO / "carddemo" / "CVTRA06Y.cpy"
+    dat = DEMO / "carddemo" / "DALYTRAN.PS"
+    if not (cpy.exists() and dat.exists()):
+        return {"copybook": "", "data": "", "copybook_name": "",
+                "data_name": "", "credit": "sample unavailable - "
+                                           "run scripts/fetch_carddemo.py"}
+    layout = parse_file(str(cpy))
+    raw = dat.read_bytes()[:SAMPLE_RECORDS_IN_UPLOADER * layout.record_length()]
+    return {"copybook": cpy.read_text(),
+            "copybook_name": cpy.name,
+            "data": base64.b64encode(raw).decode(),
+            "data_name": dat.name,
+            "credit": f"{SAMPLE_RECORDS_IN_UPLOADER} records of AWS CardDemo "
+                      f"(Apache-2.0)"}
+
+
 def build_payload() -> dict:
     cpy, dat = DEMO / "UTLBILL.cpy", DEMO / "UTLBILL.dat"
     if not dat.exists():
@@ -106,6 +131,11 @@ def build_payload() -> dict:
         "records": records,
         "copybook": copybook_lines,
         "cp037": "".join(bytes([i]).decode("cp037") for i in range(256)),
+        "encodings": {name: "".join(bytes([i]).decode(codec) for i in range(256))
+                      for name, codec in (("cp037", "cp037"), ("cp500", "cp500"),
+                                          ("cp273", "cp273"), ("cp1026", "cp1026"),
+                                          ("cp1140", "cp1140"), ("latin1", "latin-1"))},
+        "sample": sample_case(),
         "model": MODEL,
         "findings": [{"code": f.code, "severity": f.severity, "field": f.field,
                       "claim": f.claim, "evidence": f.evidence,
@@ -166,16 +196,23 @@ def main() -> None:
     section = (here / "extract.html").read_text()
     extra_js = (here / "extract.js").read_text()
 
+    analyze_css = (here / "analyze.css").read_text()
     head = head.replace("@media(prefers-reduced-motion:reduce)",
-                        css + "@media(prefers-reduced-motion:reduce)")
+                        css + analyze_css + "@media(prefers-reduced-motion:reduce)")
     marker = '<section>\n  <div class="shead"><div><h2>Vocabulary</h2>'
     if marker not in body:
         raise SystemExit("vocabulary marker not found in body.part")
-    body = body.replace(marker, section + "\n" + marker)
+    body = body.replace(marker, section + "\n" +
+                        (here / "analyze.html").read_text() + "\n" + marker)
     anchor = "renderDump();render();"
     if anchor not in script:
         raise SystemExit("javascript anchor not found in script.part")
-    script = script.replace(anchor, anchor + "\n\n" + extra_js)
+    script = script.replace(anchor, anchor + "\n\n" + extra_js + "\n\n" +
+                            (here / "analyze.js").read_text())
+    # the browser parser and rules ship as their own scripts, before the app
+    libs = "".join(f"<script>\n{(here / n).read_text()}</script>\n"
+                   for n in ("cobol.js", "scan.js"))
+    script = libs + script
 
     blob = json.dumps(payload, separators=(",", ":"))
     if "</script" in blob:

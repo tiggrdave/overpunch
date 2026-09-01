@@ -1,0 +1,44 @@
+<section>
+  <div class="shead"><div><h2>Try it on your own files</h2>
+  <p>Point it at a copybook of your own, with or without a data file.</p></div></div>
+  <div class="uploader">
+    <div class="privacy">
+      <span class="pk">stays local</span>
+      <p><b>Nothing is uploaded.</b> The parser and the rules run in this page, in your
+      browser — there is no server to send anything to. That is not a convenience; the data
+      this tool is for is exactly the data nobody is allowed to put on a website, so the
+      analysis has to come to the bytes instead. You can disconnect your network and this
+      section still works.</p>
+    </div>
+    <div class="drops">
+      <div class="drop" id="drop-cpy">
+        <label for="in-cpy">Copybook (required)</label>
+        <input type="file" id="in-cpy" accept=".cpy,.cbl,.cob,.txt,text/plain">
+        <div class="fname" id="name-cpy"></div>
+      </div>
+      <div class="drop" id="drop-dat">
+        <label for="in-dat">Data file (optional)</label>
+        <input type="file" id="in-dat">
+        <div class="fname" id="name-dat"></div>
+      </div>
+      <div class="drop" style="border-style:solid;background:var(--surface)">
+        <label for="in-enc">Code page</label>
+        <select id="in-enc">
+          <option value="cp037">cp037 — US/Canada EBCDIC</option>
+          <option value="cp500">cp500 — International EBCDIC</option>
+          <option value="cp273">cp273 — German/Austrian EBCDIC</option>
+          <option value="cp1026">cp1026 — Turkish EBCDIC</option>
+          <option value="cp1140">cp1140 — cp037 with euro</option>
+          <option value="latin1">latin-1 — plain ASCII/ANSI</option>
+        </select>
+        <div class="fname">Change it if text reads as gibberish.</div>
+      </div>
+    </div>
+    <div class="runrow">
+      <button id="run-analyze">Analyse</button>
+      <button id="run-sample">Load the CardDemo sample</button>
+      <span class="rmsg" id="run-msg"></span>
+    </div>
+    <div class="result" id="result" hidden></div>
+  </div>
+</section>
