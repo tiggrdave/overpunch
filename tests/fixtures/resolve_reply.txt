@@ -1,0 +1,25 @@
+{
+  "resolutions": [
+    {
+      "id": "redefines:TR-PAYLOAD",
+      "resolution": {
+        "discriminator": "TR-DISCRIMINATOR",
+        "map": {
+          "P": "TR-PAYLOAD-PERSON",
+          "L": "TR-PAYLOAD-POLICY"
+        }
+      },
+      "why": ""
+    },
+    {
+      "id": "primary_key",
+      "resolution": {
+        "primary_key": [
+          "TR-REGION",
+          "TR-ACCOUNT"
+        ]
+      },
+      "why": ""
+    }
+  ]
+}

@@ -13,3 +13,4 @@ nvapi-*
 demo/carddemo/
 samples/data/
 docs/ARCHITECTURE.*.mmd
+demo/TORTURE.dat

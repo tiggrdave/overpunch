@@ -9,6 +9,7 @@ $(VENV):
 
 demo: $(VENV)
 	$(PY) demo/make_synthetic.py --records 100000
+	$(PY) demo/make_torture_data.py
 	@echo
 	-$(PY) -m overpunch.cli scan demo/UTLBILL.cpy demo/UTLBILL.dat
 	@echo
@@ -28,6 +29,7 @@ samples: $(VENV)
 
 test: $(VENV)
 	$(PY) samples/build_samples.py
+	$(PY) demo/make_torture_data.py
 	$(PY) -m pytest -q
 
 clean:

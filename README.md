@@ -188,8 +188,42 @@ is listed in `unresolved`, and generation refuses while any of them is open:
 ```
 
 `TR-DISCRIMINATOR` is obvious to a human reading that copybook. It is not
-derivable *from* it — and a tool that filled it in would be right here and wrong
-on the next file, with no way to tell the two apart.
+derivable *from* it — which is exactly the gap a language model fills, and
+exactly why its answer cannot be taken on trust.
+
+```bash
+overpunch resolve plan.json --data demo/TORTURE.dat --apply
+```
+
+Nemotron answers the questions; the **data** decides whether it was right:
+
+```
+ + CONFIRMED   REDEFINES_BRANCH  redefines:TR-PAYLOAD
+     proposed  : {"discriminator": "TR-DISCRIMINATOR",
+                  "map": {"P": "TR-PAYLOAD-PERSON", "L": "TR-PAYLOAD-POLICY"}}
+     measured  : TR-PAYLOAD-PERSON: own 100% vs other 100%
+                 TR-PAYLOAD-POLICY: own 100% vs other 33%
+
+ + CONFIRMED   PRIMARY_KEY       primary_key
+     proposed  : {"primary_key": ["TR-REGION", "TR-ACCOUNT"]}
+     measured  : distinct=300, records=300, duplicates=0, blank=0
+```
+
+Both checks are **two-sided**, because a plausible guess passes a one-sided one:
+
+- a proposed key must be **unique across every record**. `TR-ACCOUNT` alone is
+  the obvious answer and it is wrong — the same account numbers occur in both
+  regions, so it yields 150 distinct values for 300 records and is refuted.
+- a proposed discriminator must make each branch fit the records it **claims**
+  better than the records it does not. Comparing branches against each other on
+  one value does not work: `TR-PAYLOAD-PERSON` is all `PIC X`, so a policy
+  number is perfectly good text to it and it scores 100% on everything. The
+  first version of this check did that, and rejected the correct answer.
+
+`--apply` writes back **only confirmed** resolutions, recording which model
+proposed each one and the evidence that survived. Refuted proposals are never
+written. The tool still does not decide — it does the legwork, tries hard to
+prove itself wrong, and asks you to confirm.
 
 The same applies to everything else the copybook leaves open, each recorded as a
 policy rather than applied silently: whether `OCCURS` becomes a child table, four

@@ -13,8 +13,9 @@ from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
 from .decode import (DecodeError, decode_binary, decode_display,
-                     decode_display_naive, decode_packed, decode_text,
-                     split_overpunch, zone_sign)
+                     decode_display_naive, decode_hex_float,
+                     decode_packed, decode_text, split_overpunch,
+                     zone_sign)
 from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
@@ -114,7 +115,20 @@ def scan(path: str, layout: Layout, encoding: str = "cp037",
 
 def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
     st.examined += 1
+
+    # COMP-1 and COMP-2 are declared with a USAGE and no PICTURE at all. Every
+    # data file until the torture record happened to have neither, so scan()
+    # crashed on the first copybook that did.
+    if fld.usage in (Usage.COMP1, Usage.COMP2):
+        try:
+            st.sum_correct += decode_hex_float(raw)
+        except (DecodeError, ArithmeticError):
+            st.undecodable += 1
+        return
+
     pic = fld.pic
+    if pic is None:
+        return
     try:
         text = decode_text(raw, encoding)
     except Exception:

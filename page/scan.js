@@ -54,9 +54,26 @@ function zoneSign(byte){
 
 function fieldLen(f){ return COBOL.size(f) * f.occurs; }
 
+/* IBM hexadecimal float: sign bit, 7-bit excess-64 exponent, base-SIXTEEN
+   fraction. Not IEEE 754 - unpacking these bytes as a C float returns a
+   plausible wrong number. */
+function decodeHexFloat(bytes, off, len){
+  var head = bytes[off], sign = (head & 0x80) ? -1 : 1, exp = (head & 0x7F) - 64;
+  var frac = 0;
+  for(var i = 1; i < len; i++) frac = frac * 256 + bytes[off + i];
+  if(frac === 0) return 0;
+  return sign * (frac / Math.pow(2, 8 * (len - 1))) * Math.pow(16, exp);
+}
+
 function observe(st, f, bytes, off){
   st.examined++;
-  var len = fieldLen(f), t = text(bytes, off + f.offset, len);
+  var len = fieldLen(f);
+  if(f.usage === "COMP-1" || f.usage === "COMP-2"){
+    st.sumCorrect += decodeHexFloat(bytes, off + f.offset, len);
+    return;
+  }
+  var t = text(bytes, off + f.offset, len);
+  if(!f.pic) return;
   if(t.indexOf("\uFFFD") >= 0) st.undecodable++;   // replacement char, escaped
 
   if(!f.pic || !f.pic.numeric){

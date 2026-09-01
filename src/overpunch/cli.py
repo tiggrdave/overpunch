@@ -15,6 +15,8 @@ from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
 from .findings import evaluate
 from .generate import json_schema, loader_script, postgres_ddl
 from .plan import PlanError, build as build_plan, open_decisions
+from .resolve import adjudicate as adjudicate_resolutions
+from .resolve import propose as propose_resolutions
 from .vision import VisionError, declared_length_in, reconstruct
 from .layout import Layout
 from .probe import LayoutMismatch, iter_records, scan
@@ -234,6 +236,55 @@ def cmd_read_scan(args) -> int:
     return 0 if r.proved else 1
 
 
+def cmd_resolve(args) -> int:
+    plan = json.loads(Path(args.plan).read_text())
+    still = open_decisions(plan)
+    if not still:
+        print("nothing left open in this plan.")
+        return 0
+
+    copybook = Path(args.copybook or plan["source"]["copybook"])
+    if not copybook.exists():
+        print(f"cannot read {copybook} - pass --copybook", file=sys.stderr)
+        return 2
+    layout = parse_file(str(copybook))
+
+    print(f"plan     : {args.plan}  ({len(still)} open)")
+    print(f"model    : {args.model}")
+    print(f"data     : {args.data}")
+    print()
+    try:
+        proposals = propose_resolutions(plan, copybook.read_text(), model=args.model)
+    except NemotronError as exc:
+        print(f"[proposal step skipped] {exc}", file=sys.stderr)
+        return 3
+
+    verdicts = adjudicate_resolutions(proposals, plan, layout, args.data,
+                                      args.encoding)
+    for v in verdicts:
+        print(v)
+        print()
+
+    confirmed = [v for v in verdicts if v.verdict == "CONFIRMED"]
+    print(f"{len(confirmed)} of {len(verdicts)} proposal(s) survived the data.")
+    print("The tool still does not decide. It proposes, proves, and asks you "
+          "to confirm.")
+
+    if args.apply:
+        applied = 0
+        for v in confirmed:
+            for u in plan["unresolved"]:
+                if u["id"] == v.proposal.decision_id and not u.get("resolution"):
+                    u["resolution"] = v.proposal.resolution
+                    u["proposed_by"] = args.model
+                    u["evidence"] = v.evidence
+                    applied += 1
+        Path(args.plan).write_text(json.dumps(plan, indent=2) + "\n")
+        print(f"\napplied {applied} confirmed resolution(s) to {args.plan}. "
+              f"Refuted proposals were not written.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="overpunch",
@@ -301,6 +352,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--attempts", type=int, default=1,
                    help="re-read until the layout is proved against the bytes")
     p.set_defaults(func=cmd_read_scan)
+
+    p = sub.add_parser("resolve",
+                       help="propose the plan's open decisions, and prove them "
+                            "against the data")
+    p.add_argument("plan")
+    p.add_argument("--data", required=True)
+    p.add_argument("--copybook")
+    p.add_argument("--encoding", default="cp037")
+    p.add_argument("--model", default="nvidia/nemotron-3-super-120b-a12b")
+    p.add_argument("--apply", action="store_true",
+                   help="write CONFIRMED resolutions back into the plan")
+    p.set_defaults(func=cmd_resolve)
 
     args = ap.parse_args(argv)
     try:
