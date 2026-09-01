@@ -22,45 +22,106 @@ _USAGE_WORDS = {
 
 _TOKEN_RE = re.compile(r"""'[^']*'|"[^"]*"|[^\s]+""")
 
+# Compiler-directing statements. They control the printed listing and carry no
+# terminating period, so left in place they merge with the following line and
+# swallow whichever field comes next.
+_DIRECTIVES = {"SKIP1", "SKIP2", "SKIP3", "EJECT", "TITLE"}
+
 
 class CopybookError(ValueError):
     pass
 
 
-def _strip_line(line: str) -> str:
-    """Remove the sequence-number and identification areas of fixed-format source.
+def detect_format(text: str) -> str:
+    """Decide once, for the whole file, whether this is fixed or free format.
 
-    Only a genuine six-digit sequence number is stripped. Free-format copybooks
-    indent with spaces and put the level number in those columns, so stripping
-    on indentation alone deletes the `01` and the whole parse collapses.
+    Columns 1-6 are the sequence area and column 7 the indicator. What the
+    sequence area CONTAINS is not specified: `000100` and `00001 ` are both
+    ordinary, and this parser used to insist on six digits. On a real estate's
+    copybooks the five-digit form was the norm, and getting it wrong is silent -
+    every comment parses as a statement, `00001` becomes a level number, and the
+    record comes out ZERO bytes long with no error at all.
+
+    The signal used here is a sequence NUMBER followed by an indicator column:
+    four to six leading digits, then a space, hyphen, asterisk or slash. A level
+    number cannot masquerade as that, because levels are at most two digits. An
+    earlier heuristic counted any line whose column 7 was followed by digits,
+    which counted deeply indented 88-levels as evidence of fixed format and
+    inverted the answer on free-format source.
     """
+    sequenced = meaningful = 0
+    for raw in text.splitlines():
+        line = raw.rstrip("\n\r")
+        if not line.strip():
+            continue
+        meaningful += 1
+        if re.match(r"^\d{4,6}[\s\-*/]", line):
+            sequenced += 1
+    if not meaningful:
+        return "free"
+    return "fixed" if sequenced >= meaningful * 0.5 else "free"
+
+
+def _strip_line(line: str, fmt: str = "fixed") -> str:
+    """Remove the sequence-number and identification areas of fixed-format source."""
     line = line.rstrip("\n\r")
-    fixed = bool(re.match(r"^\d{6}", line))
-    if fixed and len(line) > 72:
-        line = line[:72]                       # identification area, cols 73-80
-    if re.match(r"^(\d{6}|\s{6})[*/]", line):
-        return ""                              # comment: indicator in column 7
-    if line.lstrip().startswith("*"):
-        return ""
-    if fixed:
+    if fmt == "fixed":
+        if len(line) > 72:
+            line = line[:72]               # identification area, cols 73-80
+        if len(line) > 6 and line[6] in "*/":
+            return ""                      # comment: indicator in column 7
+        if line.lstrip().startswith("*"):
+            return ""
+        if len(line) <= 6:
+            return ""
         line = " " * 6 + line[6:]
+    elif line.lstrip().startswith("*"):
+        return ""
+    body = line.strip()
+    if body and body.split(None, 1)[0].rstrip(".").upper() in _DIRECTIVES:
+        return ""
     return line
 
 
-def _statements(text: str):
+def _terminator(text: str) -> int:
+    """Index of the first period that actually ends a statement, else -1.
+
+    In COBOL a period is a separator only when followed by a space or the end of
+    the line. Splitting on every period breaks `VALUE -9999999.99.` at the
+    DECIMAL POINT: the statement ends early and `99` is parsed as a level-99
+    field nested under whatever came before it. Quoted literals are skipped for
+    the same reason - `VALUE 'MR. SMITH'` is one literal, not two statements.
+    """
+    quote = None
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "'\"":
+            quote = ch
+        elif ch == "." and (i + 1 == len(text) or text[i + 1].isspace()):
+            return i
+    return -1
+
+
+def _statements(text: str, fmt: str | None = None):
     """Yield copybook statements, joining continuation lines up to each period."""
+    fmt = fmt or detect_format(text)
     buf: list[str] = []
     for raw in text.splitlines():
-        line = _strip_line(raw)
+        line = _strip_line(raw, fmt)
         if not line.strip():
             continue
         buf.append(line.strip())
         joined = " ".join(buf)
-        while "." in joined:
-            head, _, rest = joined.partition(".")
+        while True:
+            cut = _terminator(joined)
+            if cut < 0:
+                break
+            head, joined = joined[:cut], joined[cut + 1:]
             if head.strip():
                 yield head.strip()
-            joined = rest
         buf = [joined] if joined.strip() else []
     if buf and " ".join(buf).strip():
         yield " ".join(buf).strip()
@@ -110,9 +171,11 @@ def check_truncation(text: str) -> None:
     Detected here rather than downstream because the corrupted parse that
     results is entirely plausible. It is only wrong.
     """
+    if detect_format(text) != "fixed":
+        return
     for n, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\n\r")
-        if len(line) <= 72 or not re.match(r"^\d{6}", line):
+        if len(line) <= 72:
             continue
         kept, discarded = line[6:72], line[72:]
         if "." in discarded and "." not in kept:
@@ -126,11 +189,13 @@ def check_truncation(text: str) -> None:
 
 def parse(text: str, source_name: str = "<copybook>") -> Layout:
     check_truncation(text)
+    fmt = detect_format(text)
     root: Field | None = None
     stack: list[Field] = []
     last_elementary: Field | None = None
+    fragment = False
 
-    for stmt in _statements(text):
+    for stmt in _statements(text, fmt):
         tok = _tokens(stmt)
         if not tok or not tok[0].isdigit():
             continue
@@ -191,10 +256,24 @@ def parse(text: str, source_name: str = "<copybook>") -> Layout:
             idx += 1
 
         if root is None:
-            if level != 1:
-                raise CopybookError(f"copybook does not start at level 01: {stmt!r}")
-            root = fld
-            stack = [fld]
+            if level == 1:
+                root = fld
+                stack = [fld]
+                if fld.pic is not None:
+                    last_elementary = fld
+                continue
+            # A copybook that starts below 01 is a FRAGMENT: a group of fields
+            # meant to be COPY'd into a record the program declares. Every real
+            # copybook in the estate this was first tested against is one of
+            # these, starting at 05 or 10. Refusing them rejects the common case.
+            fragment = True
+            root = Field(level=0, name="<fragment>")
+            stack = [root]
+            root.children.append(fld)
+            stack.append(fld)
+            if fld.pic is not None:
+                last_elementary = fld
+            continue
         else:
             while stack and stack[-1].level >= level:
                 stack.pop()
@@ -210,6 +289,7 @@ def parse(text: str, source_name: str = "<copybook>") -> Layout:
         raise CopybookError("no 01-level record found")
 
     layout = Layout(root=root, source_name=source_name)
+    layout.is_fragment = fragment
     layout.assign_offsets()
     layout.validate()
     return layout

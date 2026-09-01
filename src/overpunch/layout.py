@@ -46,6 +46,7 @@ class Field:
     occurs: int = 1
     occurs_depending_on: str | None = None
     redefines: str | None = None
+    redefines_external: bool = False   # target lives in another copybook
     conditions: dict[str, list[str]] = dc_field(default_factory=dict)  # 88-levels
     children: list["Field"] = dc_field(default_factory=list)
     offset: int = 0            # byte offset from start of record, filled by Layout
@@ -64,7 +65,11 @@ class Field:
         if self.children:
             total = 0
             for c in self.children:
-                if c.redefines:          # shares bytes with a sibling, adds nothing
+                # A REDEFINES shares bytes with the field it names - but only if
+                # that field is HERE. A copybook that redefines a record laid out
+                # in another copybook has nothing to share with, and is itself the
+                # record. Treating it as a shadow gives a zero-byte layout.
+                if c.redefines and not c.redefines_external:
                     continue
                 total += c.size() * c.occurs
             return total
@@ -106,12 +111,21 @@ class Layout:
     """A whole record layout: the 01-level and everything under it."""
     root: Field
     source_name: str = "<copybook>"
+    is_fragment: bool = False      # no 01 level: meant to be COPY'd into a record
 
     def record_length(self) -> int:
         return self.root.size()
 
     def assign_offsets(self) -> None:
+        for f in self.walk_all():
+            if f.redefines:
+                f.redefines_external = self.find(f.redefines) is None
         self._walk_offsets(self.root, 0)
+
+    def external_redefines(self) -> list[tuple[str, str]]:
+        """Fields redefining a target this copybook does not contain."""
+        return [(f.name, f.redefines) for f in self.walk_all()
+                if f.redefines and f.redefines_external]
 
     def _walk_offsets(self, f: Field, base: int) -> int:
         f.offset = base
@@ -120,7 +134,7 @@ class Layout:
         cursor = base
         for c in f.children:
             c.parent = f
-            if c.redefines:
+            if c.redefines and not c.redefines_external:
                 # REDEFINES starts wherever the field it redefines started
                 target = self.find(c.redefines)
                 self._walk_offsets(c, target.offset if target else cursor)

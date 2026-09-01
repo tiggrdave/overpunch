@@ -100,12 +100,34 @@ def main() -> None:
                          for f in evaluate(glayout, gstats)],
         })
 
+    # the copybook conventions that broke both parsers, as synthetic fixtures
+    _sys.path.insert(0, str(ROOT / "tests"))
+    from test_dialects import (DECIMAL_IN_VALUE, EXTERNAL_REDEFINES,  # noqa: E402
+                               FIVE_DIGIT_SEQ, FRAGMENT, WITH_DIRECTIVES)
+    from overpunch.copybook import parse as _parse                    # noqa: E402
+    out["dialects"] = []
+    for name, text in (("five-digit sequence", FIVE_DIGIT_SEQ),
+                       ("listing directives", WITH_DIRECTIVES),
+                       ("fragment, no 01", FRAGMENT),
+                       ("decimal point in VALUE", DECIMAL_IN_VALUE),
+                       ("redefines an external record", EXTERNAL_REDEFINES)):
+        lay = _parse(text)
+        out["dialects"].append({
+            "name": name, "copybook": text,
+            "record_len": lay.record_length(),
+            "fields": [{"name": f.name, "offset": f.offset,
+                        "len": f.total_size(), "usage": f.usage.value}
+                       for f in lay.elementary_fields()]})
+
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))
     print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases")
     for c in out["cases"]:
         print(f"  {c['name']:<16} {c['record_len']:>4}B  "
               f"{len(c['fields']):>2} fields  {len(c['findings']):>2} findings")
+    for c in out["dialects"]:
+        print(f"  dialect {c['name']:<32} {c['record_len']:>4}B  "
+              f"{len(c['fields'])} fields")
     for c in out["ddl_cases"]:
         print(f"  DDL {c['name']:<38} {len(c['ddl'].splitlines()):>3} lines")
 

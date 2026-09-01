@@ -20,14 +20,55 @@ var USAGES = {
   "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2"
 };
 
-function stripLine(line){
+// Compiler-directing statements: they control the listing, carry no period, and
+// left in place they merge with the next line and swallow the field after it.
+var DIRECTIVES = {SKIP1:1, SKIP2:1, SKIP3:1, EJECT:1, TITLE:1};
+
+/* The sequence area is columns 1-6 whatever it contains: `000100` and `00001 `
+   are both ordinary. Insisting on six digits made every comment parse as a
+   statement and produced a zero-byte record with no error. A level number
+   cannot be four to six leading digits, so this cannot misfire on free format. */
+function detectFormat(text){
+  var sequenced = 0, meaningful = 0;
+  text.split(/\r?\n/).forEach(function(raw){
+    var line = raw.replace(/[\r\n]+$/,"");
+    if(!line.trim()) return;
+    meaningful++;
+    if(/^\d{4,6}[\s\-*\/]/.test(line)) sequenced++;
+  });
+  if(!meaningful) return "free";
+  return sequenced >= meaningful * 0.5 ? "fixed" : "free";
+}
+
+function stripLine(line, fmt){
   line = line.replace(/[\r\n]+$/,"");
-  var fixed = /^\d{6}/.test(line);
-  if(fixed && line.length > 72) line = line.slice(0,72);
-  if(/^(\d{6}|\s{6})[*\/]/.test(line)) return "";
-  if(line.replace(/^\s+/,"").charAt(0) === "*") return "";
-  if(fixed) line = "      " + line.slice(6);
+  if(fmt === "fixed"){
+    if(line.length > 72) line = line.slice(0,72);
+    if(line.length > 6 && (line.charAt(6) === "*" || line.charAt(6) === "/")) return "";
+    if(line.replace(/^\s+/,"").charAt(0) === "*") return "";
+    if(line.length <= 6) return "";
+    line = "      " + line.slice(6);
+  } else if(line.replace(/^\s+/,"").charAt(0) === "*") return "";
+  var body = line.trim();
+  if(body){
+    var first = body.split(/\s+/)[0].replace(/\.$/,"").toUpperCase();
+    if(DIRECTIVES[first]) return "";
+  }
   return line;
+}
+
+/* A period ends a statement only when a space or the line end follows it.
+   Splitting on every period breaks `VALUE -9999999.99.` at the decimal point. */
+function terminator(text){
+  var quote = null;
+  for(var i = 0; i < text.length; i++){
+    var ch = text.charAt(i);
+    if(quote){ if(ch === quote) quote = null; continue; }
+    if(ch === "'" || ch === '"') quote = ch;
+    else if(ch === "." && (i + 1 === text.length || /\s/.test(text.charAt(i+1))))
+      return i;
+  }
+  return -1;
 }
 
 function checkTruncation(text){
@@ -43,18 +84,20 @@ function checkTruncation(text){
   }
 }
 
-function statements(text){
+function statements(text, fmt){
+  fmt = fmt || detectFormat(text);
   var out=[], buf=[];
   text.split(/\r?\n/).forEach(function(raw){
-    var line = stripLine(raw);
+    var line = stripLine(raw, fmt);
     if(!line.trim()) return;
     buf.push(line.trim());
     var joined = buf.join(" ");
-    while(joined.indexOf(".") >= 0){
-      var i = joined.indexOf(".");
-      var head = joined.slice(0,i);
+    for(;;){
+      var cut = terminator(joined);
+      if(cut < 0) break;
+      var head = joined.slice(0,cut);
+      joined = joined.slice(cut+1);
       if(head.trim()) out.push(head.trim());
-      joined = joined.slice(i+1);
     }
     buf = joined.trim() ? [joined] : [];
   });
@@ -101,14 +144,20 @@ function elementarySize(f){
 function size(f){
   if(!f.children.length) return elementarySize(f);
   var total = 0;
-  f.children.forEach(function(c){ if(!c.redefines) total += size(c) * c.occurs; });
+  f.children.forEach(function(c){
+    // a REDEFINES shares bytes only with a field that is HERE; one naming a
+    // record from another copybook has nothing to share with, and IS the record
+    if(c.redefines && !c.redefinesExternal) return;
+    total += size(c) * c.occurs;
+  });
   return total;
 }
 
 function parse(text){
   checkTruncation(text);
+  var fmt = detectFormat(text), fragment = false;
   var root=null, stack=[], lastElem=null;
-  statements(text).forEach(function(stmt){
+  statements(text, fmt).forEach(function(stmt){
     var tok = tokens(stmt);
     if(!tok.length || !/^\d+$/.test(tok[0])) return;
     var level = parseInt(tok[0],10), rest = tok.slice(1);
@@ -160,8 +209,17 @@ function parse(text){
     }
 
     if(root === null){
-      if(level !== 1) throw new Error("copybook does not start at level 01: "+stmt);
-      root = f; stack = [f];
+      if(level === 1){ root = f; stack = [f]; if(f.pic) lastElem = f; return; }
+      // a fragment: fields meant to be COPY'd into a record declared elsewhere
+      fragment = true;
+      root = {level:0, name:"<fragment>", pic:null, usage:"DISPLAY", occurs:1,
+              occursDependingOn:null, redefines:null, redefinesExternal:false,
+              signSeparate:false, signLeading:false, conditions:{}, children:[],
+              offset:0, parent:null};
+      stack = [root];
+      root.children.push(f); stack.push(f);
+      if(f.pic) lastElem = f;
+      return;
     } else {
       while(stack.length && stack[stack.length-1].level >= level) stack.pop();
       if(!stack.length) throw new Error("orphaned level "+level+" field "+name);
@@ -179,13 +237,18 @@ function parse(text){
     }
     return null;
   }
+  (function markExternal(f){
+    if(f.redefines) f.redefinesExternal = find(root, f.redefines) === null;
+    f.children.forEach(markExternal);
+  })(root);
+
   function walk(f, base){
     f.offset = base;
     if(!f.children.length) return base + size(f) * f.occurs;
     var cursor = base;
     f.children.forEach(function(c){
       c.parent = f;
-      if(c.redefines){
+      if(c.redefines && !c.redefinesExternal){
         var t = find(root, c.redefines);
         walk(c, t ? t.offset : cursor);
         return;
@@ -210,10 +273,11 @@ function parse(text){
     throw new Error("field offsets reach byte "+reach+" but the record is "+
                     recordLen+" bytes; the layout disagrees with itself");
 
-  return {root:root, recordLen:recordLen, fields:leaves, find:function(n){return find(root,n);},
-          size:size};
+  return {root:root, recordLen:recordLen, fields:leaves, isFragment:fragment,
+          find:function(n){return find(root,n);}, size:size};
 }
 
 return {parse: parse, parsePicture: parsePicture, statements: statements,
-        elementarySize: elementarySize, size: size};
+        elementarySize: elementarySize, size: size,
+        detectFormat: detectFormat, terminator: terminator};
 })();

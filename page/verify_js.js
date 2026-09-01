@@ -76,6 +76,30 @@ for (const c of ref.cases) {
   }
 }
 
+let dialectsCompared = 0;
+for (const d of ref.dialects || []) {
+  dialectsCompared++;
+  let lay;
+  try { lay = COBOL.parse(d.copybook); }
+  catch (e) { console.log(`  dialect ${d.name}: JS threw ${e.message}`); failures++; continue; }
+  if (lay.recordLen !== d.record_len) {
+    console.log(`  dialect ${d.name}: record length JS=${lay.recordLen} PY=${d.record_len}`);
+    failures++;
+  }
+  if (lay.fields.length !== d.fields.length) {
+    console.log(`  dialect ${d.name}: field count JS=${lay.fields.length} PY=${d.fields.length}`);
+    failures++;
+  }
+  for (let i = 0; i < Math.min(lay.fields.length, d.fields.length); i++) {
+    const j = lay.fields[i], p = d.fields[i];
+    if (j.name !== p.name || j.offset !== p.offset ||
+        COBOL.size(j) * j.occurs !== p.len) {
+      console.log(`  dialect ${d.name}[${i}] JS ${j.name}@${j.offset} != PY ${p.name}@${p.offset}`);
+      failures++;
+    }
+  }
+}
+
 let ddlCompared = 0;
 for (const c of ref.ddl_cases || []) {
   ddlCompared++;
@@ -95,7 +119,8 @@ for (const c of ref.ddl_cases || []) {
 }
 
 console.log(`\n${ref.cases.length} files, ${comparedFields} fields, ` +
-            `${comparedFindings} findings, ${ddlCompared} DDL renderings compared, ` +
+            `${comparedFindings} findings, ${ddlCompared} DDL renderings, ` +
+            `${dialectsCompared} dialects compared, ` +
             `${failures} disagreement(s)`);
 if (failures) { console.log(">>> the two implementations DISAGREE"); process.exit(1); }
 console.log(">>> browser and Python implementations agree");

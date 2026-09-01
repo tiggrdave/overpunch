@@ -12,6 +12,7 @@ from .copybook import parse_file
 from .decode import decode_field
 from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
                       parse_hypotheses, profile, propose)
+from .benchmark import CANDIDATES, compare, table
 from .findings import evaluate
 from .generate import json_schema, loader_script, postgres_ddl
 from .plan import PlanError, build as build_plan, open_decisions
@@ -30,6 +31,12 @@ def _layout_table(layout: Layout) -> str:
                     f"{f.pic.raw:<14} {f.usage.value}")
     rows.append("-" * 72)
     rows.append(f"record length: {layout.record_length()} bytes")
+    if layout.is_fragment:
+        rows.append("note: no 01 level - this is a fragment, meant to be COPY'd "
+                    "into a record declared elsewhere")
+    for name, target in layout.external_redefines():
+        rows.append(f"note: {name} REDEFINES {target}, which is not in this "
+                    f"copybook; its length is assumed to match")
     return "\n".join(rows)
 
 
@@ -285,6 +292,20 @@ def cmd_resolve(args) -> int:
     return 0
 
 
+def cmd_benchmark(args) -> int:
+    layout = parse_file(args.copybook)
+    models = [m.strip() for m in args.models.split(",")] if args.models else CANDIDATES
+    print(f"comparing {len(models)} model(s), {args.samples} run(s) each, "
+          f"against {args.data}\n", file=sys.stderr)
+    report = compare(models, layout, Path(args.copybook).read_text(), args.data,
+                     encoding=args.encoding, samples=args.samples, limit=args.limit)
+    print(table(report))
+    if args.out:
+        Path(args.out).write_text(json.dumps(report, indent=2) + "\n")
+        print(f"\nfull report written to {args.out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="overpunch",
@@ -364,6 +385,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--apply", action="store_true",
                    help="write CONFIRMED resolutions back into the plan")
     p.set_defaults(func=cmd_resolve)
+
+    p = sub.add_parser("benchmark",
+                       help="score models against what the deterministic pass finds")
+    p.add_argument("copybook")
+    p.add_argument("data")
+    p.add_argument("--models", help="comma separated; defaults to the built-in set")
+    p.add_argument("--samples", type=int, default=3)
+    p.add_argument("--limit", type=int, default=20000)
+    p.add_argument("--encoding", default="cp037")
+    p.add_argument("-o", "--out")
+    p.set_defaults(func=cmd_benchmark)
 
     args = ap.parse_args(argv)
     try:

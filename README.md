@@ -342,6 +342,33 @@ It found four defects on first contact:
 
 The last one is now refused outright, naming the discarded text.
 
+## Pointed at twelve real copybooks, all twelve failed
+
+They came from a production government tax system. Nine returned a **zero-byte
+record with no error at all**; three raised. Five separate defects, every one of
+them a convention this parser had simply never met:
+
+| what real copybooks do | what happened |
+|---|---|
+| a **five-digit** sequence number, `00001 ` | only six digits were recognised, so every comment parsed as a statement, `00001` became a level number, and the record came out **0 bytes** |
+| `SKIP1`, `SKIP2`, `EJECT` listing directives | no terminating period, so each one merged with the next line and **swallowed the field after it** |
+| **no `01` level** — a fragment to be `COPY`'d into a record declared elsewhere | refused outright. All twelve started at `05` or `10`; requiring `01` rejects the common case |
+| `VALUE -9999999.99.` | split at the **decimal point**: the statement ended early and `99` was parsed as a level-99 field |
+| `REDEFINES` a record from **another copybook** | nothing here to share bytes with, so the layout collapsed to zero |
+
+All twelve parse now, and the arithmetic was hand-checked against one of them:
+58 bytes summed by hand, 58 from the parser, three internal `REDEFINES` correctly
+sharing bytes and the external one **reported as an assumption** rather than
+silently absorbed.
+
+The browser parser had every one of the same defects, which would have made
+"try it on your own files" fail for precisely the people it is aimed at. Both
+implementations were fixed and now agree on all twelve — 3,243 fields, zero
+disagreements — and on five synthetic fixtures of these conventions that are
+part of the permanent cross-check.
+
+None of that source appears in this repository.
+
 ## What the tests actually check
 
 199 tests, in five kinds:
