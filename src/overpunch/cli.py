@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from .decode import decode_field
 from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
                       parse_hypotheses, profile, propose)
 from .findings import evaluate
+from .generate import json_schema, loader_script, postgres_ddl
+from .plan import PlanError, build as build_plan, open_decisions
 from .layout import Layout
 from .probe import LayoutMismatch, iter_records, scan
 
@@ -147,6 +150,43 @@ def cmd_explain(args) -> int:
     return 0
 
 
+def cmd_plan(args) -> int:
+    layout = parse_file(args.copybook)
+    plan = build_plan(layout, table=args.table, encoding=args.encoding)
+    text = json.dumps(plan, indent=2) + "\n"
+    if args.out:
+        Path(args.out).write_text(text)
+        print(f"plan written to {args.out}")
+    else:
+        print(text, end="")
+    still = open_decisions(plan)
+    tables = plan["tables"]
+    print(f"\n{len(tables)} table(s), "
+          f"{sum(len(t['columns']) for t in tables)} column(s)", file=sys.stderr)
+    if still:
+        print(f"{len(still)} decision(s) left open - the copybook does not "
+              f"settle them and neither will this tool:", file=sys.stderr)
+        for u in still:
+            print(f"  [{u['kind']}] {u['question']}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_emit(args) -> int:
+    plan = json.loads(Path(args.plan).read_text())
+    try:
+        if args.format == "ddl":
+            print(postgres_ddl(plan), end="")
+        elif args.format == "jsonschema":
+            print(json_schema(plan))
+        else:
+            print(loader_script(plan), end="")
+    except PlanError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="overpunch",
@@ -191,6 +231,18 @@ def main(argv: list[str] | None = None) -> int:
                    help="reasoning models need room; a truncated reply "
                         "parses as no reply at all")
     p.set_defaults(func=cmd_explain)
+
+    p = sub.add_parser("plan", help="turn a copybook into an editable extraction plan")
+    p.add_argument("copybook")
+    p.add_argument("-o", "--out")
+    p.add_argument("--table")
+    p.add_argument("--encoding", default="cp037")
+    p.set_defaults(func=cmd_plan)
+
+    p = sub.add_parser("emit", help="generate DDL, JSON Schema or a loader from a plan")
+    p.add_argument("plan")
+    p.add_argument("--format", choices=["ddl", "jsonschema", "loader"], default="ddl")
+    p.set_defaults(func=cmd_emit)
 
     args = ap.parse_args(argv)
     try:

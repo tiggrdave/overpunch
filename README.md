@@ -162,6 +162,42 @@ byte of its data are invented for this repository.** No copybook, record layout,
 or dataset belonging to any organisation appears here, and none informed the
 demo's structure.
 
+## From copybook to a database, without guessing
+
+```bash
+overpunch plan demo/TORTURE.cpy -o plan.json    # what needs deciding
+overpunch emit plan.json --format ddl           # refuses while anything is open
+overpunch emit plan.json --format jsonschema
+overpunch emit plan.json --format loader
+```
+
+Nothing is generated from a copybook. A **plan** is generated from the copybook,
+the plan is a file a person reads, edits and reviews, and the DDL, the schema and
+the loader are all rendered from the plan. Every decision the bytes cannot settle
+is listed in `unresolved`, and generation refuses while any of them is open:
+
+```
+2 decision(s) in this plan are still open.
+
+  [REDEFINES_BRANCH] redefines:TR-PAYLOAD
+    TR-PAYLOAD is redefined by TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY. The same
+    bytes mean different things per record and nothing in the copybook says
+    which. Name the field that decides, and what its values mean.
+    set "resolution" to something shaped like:
+      {"discriminator": "<FIELD-NAME>", "map": {"<value>": "TR-PAYLOAD-PERSON"}}
+```
+
+`TR-DISCRIMINATOR` is obvious to a human reading that copybook. It is not
+derivable *from* it — and a tool that filled it in would be right here and wrong
+on the next file, with no way to tell the two apart.
+
+The same applies to everything else the copybook leaves open, each recorded as a
+policy rather than applied silently: whether `OCCURS` becomes a child table, four
+flattened columns or a JSON array; whether trailing spaces are data; what counts
+as NULL in a format that has no NULL; and whether `COMP-1` is IBM hexadecimal or
+IEEE, which **nothing in the bytes distinguishes** — so the default is written
+onto the column it affects.
+
 ## The torture record
 
 `demo/TORTURE.cpy` is the hardest record I could write: packed decimal with an
