@@ -10,3 +10,4 @@ out.parquet
 .env
 *.api-key
 nvapi-*
+demo/carddemo/

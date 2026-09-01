@@ -198,6 +198,45 @@ as NULL in a format that has no NULL; and whether `COMP-1` is IBM hexadecimal or
 IEEE, which **nothing in the bytes distinguishes** — so the default is written
 onto the column it affects.
 
+## Against a real mainframe application
+
+Everything else here is synthetic by design. This is the control:
+
+```bash
+python scripts/fetch_carddemo.py     # nothing is vendored; it downloads on demand
+overpunch scan demo/carddemo/CVTRA06Y.cpy demo/carddemo/DALYTRAN.PS
+```
+
+[AWS CardDemo](https://github.com/aws-samples/aws-mainframe-modernization-carddemo)
+is a COBOL credit-card system published by AWS, with genuine EBCDIC data and the
+copybooks describing it, written by people who had never heard of this tool.
+
+`CVACT01Y.cpy` carries `RECLN 300` in a comment this parser does not read. The
+parser reaches **300 bytes from the field widths alone**, and the data file is
+exactly 50 records of it. Two independent sources agreeing, neither of them us.
+
+On the daily transaction file it finds this:
+
+```
+[CRITICAL] TRAILING_SIGN        DALYTRAN-AMT
+    evidence: negative=50, positive=250, share_negative=16.7%
+    impact: correct total 104,801.54; sign ignored 153,600.12
+            (overstated by 48,798.58)
+```
+
+**A 47% overstatement on a public dataset.** And the sign is corroborated from a
+field 100 bytes away: every one of those 50 records describes a *"Return item
+at..."*. The amount's sign comes from one byte; the word "Return" comes from
+somewhere else entirely. Agreement between them is evidence, not self-consistency.
+
+The account file, by contrast, produces **no critical finding at all** - it has no
+negative balances, so the tool says so quietly. A detector that finds something
+alarming in every file is not a detector.
+
+One honest negative result: **record-length arithmetic alone does not identify
+the right copybook.** Every CardDemo file divides evenly by six of these record
+lengths. Divisibility rules layouts out; only content rules one in.
+
 ## The torture record
 
 `demo/TORTURE.cpy` is the hardest record I could write: packed decimal with an
