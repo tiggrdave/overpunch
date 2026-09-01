@@ -61,6 +61,63 @@ def pack_plan(copybook: Path, resolutions=None, policies=None) -> dict:
 SAMPLE_RECORDS_IN_UPLOADER = 60
 
 
+def vision_case() -> dict:
+    """Two real replies from nemotron-parse reading the same scanned page.
+
+    One is right, one is not, and the wrong one parses as valid COBOL. Both are
+    committed under tests/fixtures/, so this section shows captured output
+    rather than a story about it.
+    """
+    import json as _json
+    from overpunch.copybook import parse as parse_text
+    from overpunch.vision import declared_length_in, to_copybook
+
+    fix = ROOT / "tests" / "fixtures"
+    scan_png = ROOT / "demo" / "scans" / "CVTRA06Y-scan-web.png"
+    if not (fix / "parse_good.json").exists() or not scan_png.exists():
+        return {}
+
+    data_bytes = 0
+    dat = DEMO / "carddemo" / "DALYTRAN.PS"
+    if dat.exists():
+        data_bytes = dat.stat().st_size
+
+    reads = []
+    for label, name in (("proved", "parse_good.json"),
+                        ("rejected", "parse_misread.json")):
+        raw = _json.loads((fix / name).read_text())
+        text, kept = to_copybook(raw)
+        declared = declared_length_in(" ".join(kept))
+        try:
+            layout = parse_text(text)
+            rlen = layout.record_length()
+            fields = len(layout.elementary_fields())
+            err = None
+        except Exception as exc:
+            rlen, fields, err = 0, 0, f"{type(exc).__name__}: {exc}"
+        checks = []
+        if err:
+            checks.append(["parses as COBOL", False, err])
+        else:
+            checks.append(["parses as COBOL", True,
+                           f"{fields} fields, {rlen}-byte record"])
+            if declared:
+                checks.append(["matches the length printed on the page",
+                               rlen == declared,
+                               f"parsed {rlen} from the field widths, "
+                               f"page says {declared}"])
+            if data_bytes:
+                checks.append(["divides the real data file exactly",
+                               data_bytes % rlen == 0,
+                               f"{data_bytes:,} / {rlen} = {data_bytes / rlen:.4f}"])
+        reads.append({"label": label, "copybook": text, "checks": checks,
+                      "record_len": rlen})
+
+    return {"image": base64.b64encode(scan_png.read_bytes()).decode(),
+            "model": "nvidia/nemotron-parse", "reads": reads,
+            "source": "CVTRA06Y.cpy, rendered as a scan of a printout"}
+
+
 def sample_case() -> dict:
     """A slice of AWS CardDemo, so the uploader has something real to chew on.
 
@@ -136,6 +193,7 @@ def build_payload() -> dict:
                                           ("cp273", "cp273"), ("cp1026", "cp1026"),
                                           ("cp1140", "cp1140"), ("latin1", "latin-1"))},
         "sample": sample_case(),
+        "vision": vision_case(),
         "model": MODEL,
         "findings": [{"code": f.code, "severity": f.severity, "field": f.field,
                       "claim": f.claim, "evidence": f.evidence,
@@ -196,19 +254,22 @@ def main() -> None:
     section = (here / "extract.html").read_text()
     extra_js = (here / "extract.js").read_text()
 
-    analyze_css = (here / "analyze.css").read_text()
+    extra_css = ((here / "analyze.css").read_text() +
+                 (here / "vision.css").read_text())
     head = head.replace("@media(prefers-reduced-motion:reduce)",
-                        css + analyze_css + "@media(prefers-reduced-motion:reduce)")
+                        css + extra_css + "@media(prefers-reduced-motion:reduce)")
     marker = '<section>\n  <div class="shead"><div><h2>Vocabulary</h2>'
     if marker not in body:
         raise SystemExit("vocabulary marker not found in body.part")
-    body = body.replace(marker, section + "\n" +
+    body = body.replace(marker,
+                        (here / "vision.html").read_text() + "\n" + section + "\n" +
                         (here / "analyze.html").read_text() + "\n" + marker)
     anchor = "renderDump();render();"
     if anchor not in script:
         raise SystemExit("javascript anchor not found in script.part")
     script = script.replace(anchor, anchor + "\n\n" + extra_js + "\n\n" +
-                            (here / "analyze.js").read_text())
+                            (here / "analyze.js").read_text() + "\n\n" +
+                            (here / "vision.js").read_text())
     # the browser parser and rules ship as their own scripts, before the app
     libs = "".join(f"<script>\n{(here / n).read_text()}</script>\n"
                    for n in ("cobol.js", "scan.js", "ddl.js"))

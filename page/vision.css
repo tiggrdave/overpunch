@@ -1,0 +1,16 @@
+.visionwrap{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:20px;
+  align-items:start}
+@media(max-width:900px){.visionwrap{grid-template-columns:1fr}}
+.scanfig{margin:0}
+.scanfig img{width:100%;border:1px solid var(--rule-2);border-radius:3px;
+  box-shadow:var(--shadow);display:block;background:#fff}
+.scanfig figcaption{font-size:12.5px;color:var(--ink-3);margin-top:9px;line-height:1.5}
+.vcheck{display:flex;gap:10px;align-items:baseline;font-size:13px;padding:3px 0}
+.vcheck .vm{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;
+  letter-spacing:.07em;padding:1px 6px;border-radius:2px;border:1px solid currentColor}
+.vcheck.ok .vm{color:var(--moss);background:var(--moss-soft)}
+.vcheck.no .vm{color:var(--oxide);background:var(--oxide-soft)}
+.vcheck .vn{flex:1}
+.vcheck .vd{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3)}
+.vverdict{margin-top:9px;padding-top:9px;border-top:1px solid var(--rule);font-size:13px}
+.vverdict.ok{color:var(--moss)} .vverdict.no{color:var(--oxide)}

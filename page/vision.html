@@ -1,0 +1,34 @@
+<section>
+  <div class="shead"><div><h2>When the copybook is a photograph</h2>
+  <p>Plenty of copybooks are not files. They are printouts, or images inside a PDF nobody can
+  select text out of, and the person who could retype them left in 2009.</p></div></div>
+  <div class="visionwrap">
+    <figure class="scanfig">
+      <img id="scanimg" alt="A scanned printout of a COBOL copybook listing, on fanfold paper">
+      <figcaption>Fed to <span class="mono" id="visionmodel"></span> — no text layer, no
+      selectable characters. Just paper.</figcaption>
+    </figure>
+    <div>
+      <div class="bar" style="border:1px solid var(--rule);border-bottom:0;border-radius:3px 3px 0 0">
+        <span class="eyebrow">Two real reads of this page</span>
+        <span class="spacer"></span>
+        <button data-read="0" aria-pressed="true">Read A</button>
+        <button data-read="1" aria-pressed="false">Read B</button>
+      </div>
+      <div class="panel" style="border-radius:0 0 3px 3px">
+        <pre class="out" id="visionout" style="max-height:250px"></pre>
+        <div id="visionchecks" style="padding:12px 14px;border-top:1px solid var(--rule)"></div>
+      </div>
+      <p class="lede" style="margin-top:14px;font-size:13.5px">Same model, same image, two
+      attempts. One is right. The other names a field <span class="mono">DALYTRANS-ID</span>,
+      truncates another to <span class="mono">DALY</span>, and <b>parses as perfectly valid
+      COBOL</b> — nothing about its shape gives it away.</p>
+      <p class="lede" style="font-size:13.5px">What settles it is that a copybook makes a
+      falsifiable prediction. The field widths must sum to the record length printed on the
+      page, and the real 105,000-byte data file must divide by it. A model read the paper;
+      the arithmetic decided whether it read it right. An unreliable reader plus a decisive
+      check is a reliable pipeline — so the tool simply re-reads until a layout is proved,
+      and tells you how many attempts it took.</p>
+    </div>
+  </div>
+</section>

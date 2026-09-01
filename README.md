@@ -313,6 +313,48 @@ running `overpunch` against `demo/` at build time. If the tool changes its
 answers, the page changes with it — which is the only way a demo stays honest.
 The build refuses to write a page containing an absolute local path.
 
+## When the copybook is a photograph
+
+Plenty of copybooks are not files. They are printouts, or images inside a PDF
+nobody can select text out of, and the person who could retype them left in 2009.
+
+```bash
+overpunch read-scan demo/scans/CVTRA06Y-scan.png \
+    --data demo/carddemo/DALYTRAN.PS --attempts 4
+```
+
+`nvidia/nemotron-parse` reads the page. Nothing downstream believes it:
+
+```
+what could be PROVED about it, against the bytes:
+  [PASS] parses as COBOL                        14 fields, 350-byte record
+  [PASS] matches the length printed on the page parsed 350 from the field widths,
+                                                page says 350
+  [PASS] divides the real data file exactly     105,000 / 350 = 300.0000
+
+A model read the page. The arithmetic decided whether it read it right.
+```
+
+**It gets it wrong regularly.** Six reads of the same image gave four correct
+layouts and two wrong ones — a run where `DALYTRAN-ID` came back as
+`DALYTRANS-ID` and `DALYTRAN-TYPE-CD` was truncated to `DALY`, and another at
+319 bytes. Both of the wrong ones **parsed as valid COBOL with a sensible field
+list.** Nothing about their shape gives them away.
+
+What makes that survivable is that a copybook makes a falsifiable prediction:
+the field widths must sum to the record length printed on the page, and the real
+data file must divide by it exactly. So the checks are decisive and cheap, and
+the honest way to use an unreliable reader is to **re-read until a layout is
+proved** and say how many attempts it took.
+
+The chain closes: a picture of a printout produces a copybook that finds the
+*same* defect in the real data as the genuine one, to the cent —
+`correct total 104,801.54; sign ignored 153,600.12`. There is a test asserting
+exactly that, and two more asserting the bad read is rejected.
+
+Both fixtures under `tests/fixtures/` are real captured replies, so the tests
+run without a network or a key.
+
 ## Two implementations, held to the same answers
 
 The page analyses files **in your browser**. That is not a convenience: the data

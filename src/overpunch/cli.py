@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
 from .findings import evaluate
 from .generate import json_schema, loader_script, postgres_ddl
 from .plan import PlanError, build as build_plan, open_decisions
+from .vision import VisionError, declared_length_in, reconstruct
 from .layout import Layout
 from .probe import LayoutMismatch, iter_records, scan
 
@@ -187,6 +189,51 @@ def cmd_emit(args) -> int:
     return 0
 
 
+def cmd_read_scan(args) -> int:
+    key = os.environ.get("NVIDIA_API_KEY")
+    if not key:
+        print("no NVIDIA_API_KEY in the environment; a free key comes from "
+              "build.nvidia.com", file=sys.stderr)
+        return 3
+    image = Path(args.image).read_bytes()
+    data_bytes = Path(args.data).stat().st_size if args.data else None
+    declared = (declared_length_in(Path(args.declares).read_text())
+                if args.declares else None)
+
+    print(f"image    : {args.image}  ({len(image):,} bytes)")
+    print(f"model    : {args.model}")
+    try:
+        r = reconstruct(image, key, data_bytes=data_bytes,
+                        declared_length=declared, model=args.model,
+                        attempts=args.attempts)
+    except VisionError as exc:
+        print(f"[read failed] {exc}", file=sys.stderr)
+        return 1
+
+    print(f"blocks   : {len(r.blocks)} text region(s) located"
+          + (f"   (attempt {r.attempts})" if r.attempts > 1 else ""))
+    print()
+    if args.out:
+        Path(args.out).write_text(r.copybook)
+        print(f"reconstructed copybook written to {args.out}")
+    else:
+        print(r.copybook)
+
+    if r.parse_error:
+        print(f"[CRITICAL] the reconstruction does not parse: {r.parse_error}",
+              file=sys.stderr)
+        return 1
+
+    print("what could be PROVED about it, against the bytes:")
+    for name, ok, detail in r.checks:
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name:<44} {detail}")
+    print()
+    print("A model read the page. The arithmetic decided whether it read it right."
+          if r.proved else
+          "At least one check failed - do not trust this reconstruction.")
+    return 0 if r.proved else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="overpunch",
@@ -243,6 +290,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("plan")
     p.add_argument("--format", choices=["ddl", "jsonschema", "loader"], default="ddl")
     p.set_defaults(func=cmd_emit)
+
+    p = sub.add_parser("read-scan",
+                       help="recover a copybook from an image of a printout")
+    p.add_argument("image")
+    p.add_argument("--data", help="the real data file, to check the layout against")
+    p.add_argument("--declares", help="a file whose text states RECLN, for cross-check")
+    p.add_argument("-o", "--out")
+    p.add_argument("--model", default="nvidia/nemotron-parse")
+    p.add_argument("--attempts", type=int, default=1,
+                   help="re-read until the layout is proved against the bytes")
+    p.set_defaults(func=cmd_read_scan)
 
     args = ap.parse_args(argv)
     try:

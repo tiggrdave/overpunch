@@ -1,0 +1,22 @@
+[
+ {
+  "bbox": {
+   "xmin": 0.11443326732673263,
+   "ymin": 0.08385116279069774,
+   "xmax": 0.8457536633663366,
+   "ymax": 0.1835720930232558
+  },
+  "text": "\\begin{tabular}{cccc}\n\\multicolumn{4}{c}{**Data-structure for DALYTRANSaction record (RECLN = 350)**}\\\\\n01 & DALYTRAN-RECORD. & & \\\\\n\\end{tabular}",
+  "type": "Table"
+ },
+ {
+  "bbox": {
+   "xmin": 0.11590178217821785,
+   "ymin": 0.33032558139534884,
+   "xmax": 0.8761029702970298,
+   "ymax": 0.804520930232558
+  },
+  "text": "\\begin{tabular}{cccc}\n & 05 & DALYTRAN-ID & PIC X(16).\\\\\n & 05 & DALYTRAN-TYPE-CD & PIC X(02).\\\\\n & 05 & DALYTRAN-CAT-CD & PIC 9(04).\\\\\n & 05 & DALYTRAN-SOURCE & PIC X(10).\\\\\n & 05 & DALYTRAN-DESC & PIC X(100).\\\\\n & 05 & DALYTRAN-AMT & PIC S9(09)V99.\\\\\n & 05 & DALYTRAN-MERCHANT-ID & PIC 9(09).\\\\\n & 05 & DALYTRAN-MERCHANT-NAME & PIC X(50).\\\\\n & 05 & DALYTRAN-MERCHANT-CITY & PIC X(50).\\\\\n & 05 & DALYTRAN-MERCHANT-ZIP & PIC X(10).\\\\\n & 05 & DALYTRAN-CARD-NUM & PIC X(16].\\\\\n & 05 & DALYTRAN-ORIG-TS & PIC X(26).\\\\\n & 05 & DALYTRAN-PROC-TS & PIC X(26).\\\\\n & 05 & FILLER & PIC X(20).\\\\\n\\end{tabular}",
+  "type": "Table"
+ }
+]

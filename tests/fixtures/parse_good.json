@@ -1,0 +1,52 @@
+[
+ {
+  "bbox": {
+   "xmin": 0.11280158415841583,
+   "ymin": 0.0674790697674419,
+   "xmax": 0.8426534653465346,
+   "ymax": 1.0885023255813953
+  },
+  "text": "",
+  "type": "Picture"
+ },
+ {
+  "bbox": {
+   "xmin": 0.16371009900990097,
+   "ymin": 0.08593488372093022,
+   "xmax": 0.7884815841584157,
+   "ymax": 0.11867906976744189
+  },
+  "text": "Data-structure for DALYTRANSaction record (RECLN = 350)",
+  "type": "Text"
+ },
+ {
+  "bbox": {
+   "xmin": 0.12389702970297033,
+   "ymin": 0.17196279069767437,
+   "xmax": 0.34857980198019806,
+   "ymax": 0.19756279069767435
+  },
+  "text": "01 DALYTRAN-RECORD.",
+  "type": "List-item"
+ },
+ {
+  "bbox": {
+   "xmin": 0.16371009900990097,
+   "ymin": 0.21393488372093017,
+   "xmax": 0.7661275247524753,
+   "ymax": 0.7929116279069769
+  },
+  "text": "\\begin{tabular}{ccc}\n05 DALYTRAN-ID & PIC & X(16).\\\\\n05 DALYTRAN-TYPE-CD & PIC & X(02).\\\\\n05 DALYTRAN-CAT-CD & PIC & 9(04).\\\\\n05 DALYTRAN-SOURCE & PIC & X(10).\\\\\n05 DALYTRAN-DESC & PIC & X(100).\\\\\n05 DALYTRAN-AMT & PIC & S9(09)V99.\\\\\n05 DALYTRAN-MERCHANT-ID & PIC & 9(09).\\\\\n05 DALYTRAN-MERCHANT-NAME & PIC & X(50).\\\\\n05 DALYTRAN-MERCHANT-CITY & PIC & X(50).\\\\\n05 DALYTRAN-MERCHANT-ZIP & PIC & X(10).\\\\\n05 DALYTRAN-CARD-NUM & PIC & X(16).\\\\\n05 DALYTRAN-ORIG-TS & PIC & X(26).\\\\\n05 DALYTRAN-PROC-TS & PIC & X(26).\\\\\n05 FILLER & PIC & X(20).\\\\\n\\end{tabular}",
+  "type": "Table"
+ },
+ {
+  "bbox": {
+   "xmin": 0.14298772277227723,
+   "ymin": 0.8208930232558139,
+   "xmax": 0.8473853465346534,
+   "ymax": 0.8536372093023257
+  },
+  "text": "Ver: CardDemo_v1.0-15-g27d6c6f-68 Date: 2022-07-19 23:16:01 CDT",
+  "type": "Text"
+ }
+]
