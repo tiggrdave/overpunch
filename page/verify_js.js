@@ -17,7 +17,8 @@ const sandbox = { console };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(here, "cobol.js"), "utf8"), sandbox);
 vm.runInContext(fs.readFileSync(path.join(here, "scan.js"), "utf8"), sandbox);
-const COBOL = sandbox.COBOL, SCAN = sandbox.SCAN;
+vm.runInContext(fs.readFileSync(path.join(here, "ddl.js"), "utf8"), sandbox);
+const COBOL = sandbox.COBOL, SCAN = sandbox.SCAN, DDL = sandbox.DDL;
 
 const refPath = path.join(here, "reference.json");
 if (!fs.existsSync(refPath)) {
@@ -73,7 +74,26 @@ for (const c of ref.cases) {
   }
 }
 
+let ddlCompared = 0;
+for (const c of ref.ddl_cases || []) {
+  ddlCompared++;
+  // derive the key from the plan the same way postgres_ddl() does, rather than
+  // being handed one the Python side never saw - the first version of this
+  // harness did exactly that and reported a disagreement that was its own
+  const pkDecision = (c.plan.unresolved || []).find(u => u.id === "primary_key");
+  const keys = (pkDecision && pkDecision.resolution && pkDecision.resolution.primary_key) || [];
+  const got = DDL.render({plan: c.plan}, keys);
+  if (got !== c.ddl) {
+    failures++;
+    const g = got.split("\n"), p = c.ddl.split("\n");
+    console.log(`  DDL ${c.name}: differs`);
+    for (let i = 0; i < Math.max(g.length, p.length); i++)
+      if (g[i] !== p[i]) { console.log(`      line ${i}\n        JS: ${g[i]}\n        PY: ${p[i]}`); break; }
+  }
+}
+
 console.log(`\n${ref.cases.length} files, ${comparedFields} fields, ` +
-            `${comparedFindings} findings compared, ${failures} disagreement(s)`);
+            `${comparedFindings} findings, ${ddlCompared} DDL renderings compared, ` +
+            `${failures} disagreement(s)`);
 if (failures) { console.log(">>> the two implementations DISAGREE"); process.exit(1); }
 console.log(">>> browser and Python implementations agree");

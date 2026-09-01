@@ -78,6 +78,18 @@ p.lede{color:var(--ink-2);max-width:70ch;margin:0 0 16px}
 
 .files{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 @media(max-width:860px){.files{grid-template-columns:1fr}}
+/* On a wide screen the two files stop splitting the column 50/50: the copybook
+   takes the width its longest line needs, the hex dump takes the rest, and the
+   pair breaks out of the reading column so neither has to scroll. The reading
+   column stays narrow for prose. */
+@media(min-width:1240px){
+  .files{
+    grid-template-columns:fit-content(660px) minmax(0,1fr);
+    width:min(1560px,calc(100vw - 44px));
+    margin-left:calc(548px - min(1560px,calc(100vw - 44px))/2);
+  }
+  .files .cbook,.files .dump{max-height:520px}
+}
 .panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;box-shadow:var(--shadow)}
 .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;
   border-bottom:1px solid var(--rule);background:var(--sunken)}

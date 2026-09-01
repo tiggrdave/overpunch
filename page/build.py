@@ -211,7 +211,7 @@ def main() -> None:
                             (here / "analyze.js").read_text())
     # the browser parser and rules ship as their own scripts, before the app
     libs = "".join(f"<script>\n{(here / n).read_text()}</script>\n"
-                   for n in ("cobol.js", "scan.js"))
+                   for n in ("cobol.js", "scan.js", "ddl.js"))
     script = libs + script
 
     blob = json.dumps(payload, separators=(",", ":"))

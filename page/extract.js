@@ -1,11 +1,11 @@
 /* ---- extraction plan ---- */
 (function(){
 var P=D.plans, which="utlbill", fmt="ddl", occurs="child_table";
-var answers={REDEFINES_BRANCH:"",PRIMARY_KEY:""};
+var answers={REDEFINES_BRANCH:"",PRIMARY_KEY:[]};
 
 function activePlan(){
   if(which==="utlbill") return P.utlbill;
-  var resolved=answers.REDEFINES_BRANCH&&answers.PRIMARY_KEY;
+  var resolved=answers.REDEFINES_BRANCH&&answers.PRIMARY_KEY.length;
   if(!resolved) return P.torture_open;
   return occurs==="flatten"?P.torture_flat:P.torture_child;
 }
@@ -30,22 +30,36 @@ function renderDecisions(){
   }
 
   P.torture_open.plan.unresolved.forEach(function(u){
-    var answered=!!answers[u.kind];
+    var multi = u.kind === "PRIMARY_KEY";
+    var answered = multi ? answers[u.kind].length > 0 : !!answers[u.kind];
     var d=el("div","dec"+(answered?" answered":""));
     d.appendChild(el("div","dk",answered?"answered":u.kind.replace(/_/g," ")));
     d.appendChild(el("div","dq",u.question));
     var sel=document.createElement("select");
-    var none=document.createElement("option");
-    none.value=""; none.textContent="— not answered —"; sel.appendChild(none);
+    if(multi){ sel.multiple = true; sel.size = 6; }
+    else {
+      var none=document.createElement("option");
+      none.value=""; none.textContent="— not answered —"; sel.appendChild(none);
+    }
     var opts=u.kind==="REDEFINES_BRANCH"
       ? P.torture_open.plan.tables[0].columns.map(function(c){return c.field;})
       : u.options;
     opts.forEach(function(o){
       var op=document.createElement("option"); op.value=o; op.textContent=o;
+      if(multi && answers[u.kind].indexOf(o) >= 0) op.selected = true;
       sel.appendChild(op);});
-    sel.value=answers[u.kind];
-    sel.onchange=function(){answers[u.kind]=sel.value;renderDecisions();renderOut();};
+    if(!multi) sel.value=answers[u.kind];
+    sel.onchange=function(){
+      if(multi){
+        answers[u.kind]=Array.prototype.filter.call(sel.options,function(o){
+          return o.selected;}).map(function(o){return o.value;});
+      } else answers[u.kind]=sel.value;
+      renderDecisions();renderOut();};
     d.appendChild(sel);
+    if(multi) d.appendChild(el("div","hint",
+      "A VSAM key is often several fields. Ctrl-click (Cmd-click on a Mac) to "+
+      "pick more than one — here the answer is TR-REGION and TR-ACCOUNT together, "+
+      "which is what the TR-KEY group means."));
     host.appendChild(d);
   });
 
@@ -98,11 +112,9 @@ function renderOut(){
       "the left and the same command emits.";
     return;
   }
-  var text=p.rendered[fmt]||"";
-  if(fmt==="ddl"&&which==="torture"&&answers.PRIMARY_KEY){
-    var col=answers.PRIMARY_KEY.toLowerCase().replace(/-/g,"_");
-    text=text.replace(/PRIMARY KEY \(tr_account\)/,"PRIMARY KEY ("+col+")");
-  }
+  var text = (fmt === "ddl")
+    ? DDL.render(p, which === "torture" ? answers.PRIMARY_KEY : [])
+    : (p.rendered[fmt] || "");
   pre.textContent=text;
   note.textContent=which==="torture"
     ? "Recording the REDEFINES decision unblocks generation. Emitting the two "+

@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from overpunch.copybook import parse_file          # noqa: E402
 from overpunch.findings import evaluate            # noqa: E402
 from overpunch.probe import scan                   # noqa: E402
+from overpunch.plan import build as build_plan     # noqa: E402
+from overpunch.generate import postgres_ddl        # noqa: E402
 
 PAIRS = [
     ("demo/UTLBILL.cpy", "demo/UTLBILL.dat"),
@@ -46,12 +48,38 @@ def main() -> None:
                           "field": f.field, "impact": f.impact}
                          for f in evaluate(layout, stats)],
         })
+    out["ddl_cases"] = []
+    answers = {"REDEFINES_BRANCH": {"discriminator": "TR-DISCRIMINATOR",
+                                    "map": {"P": "TR-PAYLOAD-PERSON"}}}
+    for cpy, keys in (("demo/TORTURE.cpy", ["TR-ACCOUNT"]),
+                      ("demo/TORTURE.cpy", ["TR-REGION", "TR-ACCOUNT"]),
+                      ("demo/UTLBILL.cpy", []),
+                      ("demo/carddemo/CVTRA06Y.cpy", ["DALYTRAN-ID"])):
+        path = ROOT / cpy
+        if not path.exists():
+            continue
+        layout = parse_file(str(path))
+        layout.source_name = f"demo/{path.name}"
+        plan = build_plan(layout, encoding="cp037")
+        for u in plan["unresolved"]:
+            if u["kind"] == "REDEFINES_BRANCH":
+                u["resolution"] = answers["REDEFINES_BRANCH"]
+            elif u["kind"] == "PRIMARY_KEY":
+                u["resolution"] = {"primary_key": keys}
+            else:
+                u["resolution"] = {"noted": True}
+        out["ddl_cases"].append({"name": f"{path.name} pk={keys or 'none'}",
+                                 "plan": plan, "keys": keys,
+                                 "ddl": postgres_ddl(plan)})
+
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))
     print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases")
     for c in out["cases"]:
         print(f"  {c['name']:<16} {c['record_len']:>4}B  "
               f"{len(c['fields']):>2} fields  {len(c['findings']):>2} findings")
+    for c in out["ddl_cases"]:
+        print(f"  DDL {c['name']:<38} {len(c['ddl'].splitlines()):>3} lines")
 
 
 if __name__ == "__main__":
