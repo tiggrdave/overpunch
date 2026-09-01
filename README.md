@@ -256,6 +256,24 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
 
+## The page
+
+`docs/index.html` is a browsable version of all of this: the copybook, a hex dump
+of the raw EBCDIC, a byte-level record inspector that decodes in your browser,
+the findings, the model's adjudicated proposals, and the plan-to-DDL step with
+its refusal.
+
+It is **built from real tool output**, not written by hand:
+
+```bash
+make page      # regenerates the demo data, re-runs the tool, rebuilds the page
+```
+
+Every number, finding, verdict and generated schema on that page comes from
+running `overpunch` against `demo/` at build time. If the tool changes its
+answers, the page changes with it — which is the only way a demo stays honest.
+The build refuses to write a page containing an absolute local path.
+
 ## Licence
 
 Apache-2.0.

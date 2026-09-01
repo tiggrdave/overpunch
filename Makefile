@@ -1,4 +1,4 @@
-.PHONY: demo test scan explain clean
+.PHONY: demo test page scan explain clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -14,6 +14,10 @@ demo: $(VENV)
 	@echo
 	$(PY) -m overpunch.cli explain demo/UTLBILL.cpy demo/UTLBILL.dat \
 		--hypotheses demo/nemotron-reply.json --limit 20000
+
+page: $(VENV)
+	$(PY) demo/make_synthetic.py --records 100000 >/dev/null
+	$(PY) page/build.py
 
 test: $(VENV)
 	$(PY) -m pytest -q

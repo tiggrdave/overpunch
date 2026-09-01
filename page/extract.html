@@ -1,0 +1,27 @@
+<section>
+  <div class="shead"><div><h2>From copybook to a database</h2>
+  <p>A copybook describes bytes. A schema needs answers the bytes do not carry. So nothing is
+  generated from the copybook — a <b>plan</b> is, and the plan is what a person reviews and edits.
+  Everything below is real output of the tool.</p></div></div>
+  <div class="bar" style="border:1px solid var(--rule);border-bottom:0;border-radius:3px 3px 0 0">
+    <span class="eyebrow">Layout</span>
+    <button data-layout="utlbill" aria-pressed="true">Utility billing</button>
+    <button data-layout="torture" aria-pressed="false">Torture record</button>
+    <span class="spacer"></span>
+    <span class="mono sml" id="planmeta"></span>
+  </div>
+  <div class="extract" style="border:1px solid var(--rule);border-top:0;border-radius:0 0 3px 3px;
+       padding:16px;background:var(--paper)">
+    <div class="decisions" id="decisions"></div>
+    <div class="outpane">
+      <div class="tabs">
+        <button data-fmt="ddl" aria-pressed="true">PostgreSQL DDL</button>
+        <button data-fmt="jsonschema" aria-pressed="false">JSON Schema</button>
+        <button data-fmt="loader" aria-pressed="false">Loader</button>
+        <button data-fmt="records" aria-pressed="false">Records (JSON)</button>
+      </div>
+      <pre class="out" id="out"></pre>
+      <div class="outnote" id="outnote"></div>
+    </div>
+  </div>
+</section>

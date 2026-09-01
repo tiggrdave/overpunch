@@ -1,0 +1,171 @@
+<div class="wrap">
+<header>
+  <div class="eyebrow">COBOL copybook &middot; EBCDIC cp037 &middot; 72-byte fixed record</div>
+  <h1>The sign is in the last byte</h1>
+  <p class="sub">A mainframe extract is bytes, not a file format. Nothing inside it says where
+  one field ends and the next begins, whether a number is negative, or where its decimal point
+  belongs. All of that lives in a separate document — and when the two disagree, the load still
+  succeeds and the numbers are still wrong.</p>
+  <div class="meta">
+    <span><b>Layout</b> UTLBILL.cpy (synthetic)</span>
+    <span><b>Records</b> 100,000</span>
+    <span><b>Proposals by</b> <span class="mono" id="modelname"></span></span>
+    <span><b>Adjudicated by</b> the bytes</span>
+  </div>
+</header>
+
+<section>
+  <div class="shead"><div><h2>Who has this problem</h2>
+  <p>Anyone moving decades of mainframe data into a warehouse, a lake, or a new system —
+  which right now is most large banks, insurers, utilities and government agencies in Europe.</p></div></div>
+  <div class="cards">
+    <div class="card"><span class="step">What you are given</span>
+      <h3>Two files and no schema</h3>
+      <p>A flat file of fixed-length records in EBCDIC, and a COBOL copybook describing the layout.
+      The file has no header, no delimiters and no types. The copybook is the only thing that makes
+      it readable — and it was last edited by someone who has retired.</p></div>
+    <div class="card"><span class="step">What people do</span>
+      <h3>Write a loader in an afternoon</h3>
+      <p>Slice each record at fixed offsets, strip anything that isn't a digit, cast to a number,
+      load it. It runs. It produces a table. Row counts match the source exactly, which is the
+      check most teams stop at.</p></div>
+    <div class="card alarm"><span class="step">What goes wrong</span>
+      <h3>Nothing raises an error</h3>
+      <p>Credits arrive as charges. Amounts arrive a hundred times too large. A code column
+      silently falls through every branch. There is no exception, no rejected row, no red mark —
+      just a column of plausible numbers that are wrong, sitting in a warehouse being reported on.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>The two files you are handed</h2>
+  <p>Click any field in the copybook to select it in the inspector below. The raw bytes are the
+  same 60 records, shown as they actually sit on disk.</p></div></div>
+  <div class="files">
+    <div class="panel">
+      <div class="bar"><span class="ttl">UTLBILL.cpy</span>
+        <span class="sml">the layout — 22 lines of COBOL</span></div>
+      <div class="cbook" id="cbook"></div>
+    </div>
+    <div class="panel">
+      <div class="bar"><span class="ttl">UTLBILL.dat</span>
+        <span class="sml">the data — 72 bytes per record</span>
+        <span class="spacer"></span>
+        <button data-enc="cp037" aria-pressed="true">EBCDIC</button>
+        <button data-enc="ascii" aria-pressed="false">As text</button>
+      </div>
+      <div class="dump" id="dump"></div>
+    </div>
+  </div>
+  <p class="lede" style="margin-top:14px">Press <b>As text</b> to see what happens when this file
+  is opened in an ordinary editor. The bytes are unchanged; only the assumed character set differs.
+  EBCDIC is not ASCII, and nothing in the file announces which one it is.</p>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Three ways to read the same column</h2>
+  <p>Not three settings. Three real loaders, of which two are common and both are wrong.</p></div></div>
+  <div class="explain">
+    <div class="ex right"><h3>Correct</h3>
+      <p>Recover the digit hiding under the sign, apply the sign, then shift the implied decimal
+      point that the copybook declares and the file does not store.</p>
+      <pre class="code"><span class="cm"># PIC S9(08)V99, EBCDIC, trailing overpunch</span>
+digits, sign = split_overpunch(text)
+value = Decimal(digits) * sign
+value = value.scaleb(-2)   <span class="cm"># the V99</span></pre>
+      <p class="who">What <b>overpunch</b> does.</p></div>
+    <div class="ex wrong"><h3>Sign ignored</h3>
+      <p>The last byte of a negative value is <span class="mono">}</span> or <span class="mono">J</span>–<span class="mono">R</span>,
+      not a digit. Strip non-digits and it disappears — along with the digit sharing that byte.
+      Every credit silently becomes a charge.</p>
+      <pre class="code">value = int(re.sub(r"\D", "", text)) / 100</pre>
+      <p class="who">The most common mistake, because it looks defensive.</p></div>
+    <div class="ex worse"><h3>Digits only</h3>
+      <p>The same, plus forgetting that <span class="mono">V99</span> means two decimal places that
+      are never written down. Cents are read as whole units and every figure is a hundred times
+      too large.</p>
+      <pre class="code">value = int(re.sub(r"\D", "", text))</pre>
+      <p class="who">Usually spotted — but only when someone already knows the true total.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the difference costs</h2>
+  <p>BIL-ADJUSTMENT-AMT totalled across all 100,000 records by the tool. Same bytes each time.</p></div></div>
+  <div class="swing" id="swing"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Look at a record yourself</h2>
+  <p>60 verbatim records are embedded in this page and decoded here in your browser — these
+  figures are computed live, not quoted. Click a byte to select its field.</p></div></div>
+  <div class="panel">
+    <div class="bar">
+      <button id="prev">&larr; Prev</button>
+      <button id="next">Next &rarr;</button>
+      <button id="findneg">Jump to a credit</button>
+      <span class="mono sml" id="recid"></span>
+      <span class="spacer"></span>
+      <span class="eyebrow">Read as</span>
+      <button data-mode="correct" aria-pressed="true">Correct</button>
+      <button data-mode="nosign" aria-pressed="false">Sign ignored</button>
+      <button data-mode="digits" aria-pressed="false">Digits only</button>
+    </div>
+    <div class="gridwrap">
+      <div class="ruler" id="ruler"></div>
+      <div class="bytes" id="bytes"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--steel-soft);border-color:var(--steel)"></i>selected field</span>
+      <span><i style="background:var(--oxide-soft);border-color:var(--oxide)"></i>sign byte — not a digit</span>
+      <span><i style="background:var(--sunken)"></i>alternating field bands</span>
+    </div>
+    <div class="detail">
+      <div><dl class="kv" id="fieldkv"></dl></div>
+      <div class="reads" id="reads"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the scan measured</h2>
+  <p>No model involved. Every line carries the number of records it was observed in, and where
+  the consequence is arithmetic, the arithmetic.</p></div></div>
+  <div class="finds" id="findings"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the model proposed, and what the bytes said back</h2>
+  <p>Nemotron may only propose from a closed vocabulary the prober knows how to test. A
+  hallucination cannot become a finding here — only a refuted hypothesis.</p></div></div>
+  <div class="swing" id="verdicttally" style="margin-bottom:16px"></div>
+  <div class="grp" id="verdicts"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Vocabulary</h2>
+  <p>Six terms that carry all the trouble.</p></div></div>
+  <dl class="vocab">
+    <div class="vc"><dt>Copybook</dt><dd>A fragment of COBOL declaring a record's fields in order.
+      It is the schema, kept in a separate file from the data, with nothing enforcing that the two agree.</dd></div>
+    <div class="vc"><dt>EBCDIC</dt><dd>IBM's character set, older than ASCII and incompatible with it.
+      Several variants exist — cp037, cp500, cp1047 — differing on characters people actually use.</dd></div>
+    <div class="vc"><dt>PIC S9(08)V99</dt><dd>Eight digits, then two more after an implied decimal
+      point. <span class="mono">S</span> means signed. Ten bytes on disk, no point, no sign character.</dd></div>
+    <div class="vc"><dt>Overpunch</dt><dd>The sign, encoded into the upper half of the last byte,
+      leaving the digit in the lower half. A term inherited from punched cards, where it was an
+      extra hole in the same column.</dd></div>
+    <div class="vc"><dt>COMP-3</dt><dd>Packed decimal: two digits per byte, sign in the final
+      nibble. Read as text it is unprintable garbage; read as a string it is silently truncated.</dd></div>
+    <div class="vc"><dt>88-level</dt><dd>A named condition on a field's value. Two of them can
+      claim the same value, which no tool can resolve — and one that guesses is worse than one that stops.</dd></div>
+  </dl>
+</section>
+
+<p class="foot">Every figure on this page is real output of <code>overpunch</code> run against
+<code>demo/UTLBILL.dat</code>. The record layout, its domain and every byte of its data are invented
+for the demo — no copybook or dataset belonging to any organisation appears here. Full-file totals
+come from the tool's own 100,000-record pass; the inspector's figures are computed in your browser
+from the 60 records embedded in this page, by a second decoder written independently of the first.
+Comparing the two across 660 field reads is how a digit-dropping bug in the original was found.</p>
+</div>

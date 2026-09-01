@@ -1,0 +1,209 @@
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+(function(){
+"use strict";
+var D=JSON.parse(document.getElementById("payload").textContent);
+var CP=D.cp037,RLEN=D.record_len,F=D.fields;
+var POS="{ABCDEFGHI",NEG="}JKLMNOPQR";
+function b64(s){var b=atob(s),a=new Uint8Array(b.length);
+  for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+var RECS=D.records.map(b64);
+function txt(b){var o="";for(var i=0;i<b.length;i++)o+=CP[b[i]];return o;}
+function splitSign(t){if(!t.length)return{d:"",s:1};
+  var l=t[t.length-1],i;
+  if(l==="-"||l==="+")return{d:t.slice(0,-1),s:l==="-"?-1:1};
+  i=NEG.indexOf(l);if(i>=0)return{d:t.slice(0,-1)+i,s:-1};
+  i=POS.indexOf(l);if(i>=0)return{d:t.slice(0,-1)+i,s:1};
+  return{d:t,s:1};}
+function readField(b,f){
+  var t=txt(b.slice(f.offset,f.offset+f.len));
+  if(!f.numeric)return{text:t};
+  var sp=splitSign(t),dg=(sp.d.replace(/[^0-9]/g,"")||"0"),div=Math.pow(10,f.scale||0);
+  return{text:t,correct:(f.signed?sp.s:1)*parseInt(dg,10)/div,
+         nosign:parseInt(dg,10)/div,digits:parseInt(dg,10),
+         sign:sp.s,signChar:t[t.length-1]};}
+function money(n){return n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function plain(n){return n.toLocaleString("en-US");}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+document.getElementById("modelname").textContent=D.model;
+
+/* severity per field, for the copybook trap tags */
+var worst={};
+D.findings.forEach(function(f){ if(f.severity==="critical") worst[f.field]="trap"; });
+
+/* ---- copybook ---- */
+var cb=document.getElementById("cbook");
+D.copybook.forEach(function(l){
+  var row=el("div","cbl"+(l.comment?" cmt":"")+(l.field?" pick":""));
+  row.appendChild(el("span","ln",String(l.n)));
+  row.appendChild(el("span","tx",l.text.replace(/\s+$/,"")));
+  if(l.field&&worst[l.field]) row.appendChild(el("span","tag","trap"));
+  if(l.field){
+    row.setAttribute("data-field",l.field);
+    row.onclick=function(){
+      var i=F.findIndex(function(f){return f.name===l.field;});
+      if(i>=0){selIdx=i;render();
+        document.getElementById("bytes").scrollIntoView({behavior:"smooth",block:"center"});}
+    };
+  }
+  cb.appendChild(row);
+});
+
+/* ---- raw dump ---- */
+var enc="cp037";
+function printable(ch){return ch>=" "&&ch<="~";}
+function renderDump(){
+  var d=document.getElementById("dump");d.textContent="";
+  var shown=Math.min(10,RECS.length);
+  for(var r=0;r<shown;r++){
+    d.appendChild(el("div","drec","record "+(r+1)+"  ·  bytes "+(r*RLEN)+"–"+(r*RLEN+RLEN-1)));
+    var b=RECS[r];
+    for(var o=0;o<RLEN;o+=24){
+      var row=el("div","drow");
+      row.appendChild(el("span","off",(r*RLEN+o).toString(16).toUpperCase().padStart(5,"0")));
+      var hx="",gu="";
+      for(var i=o;i<Math.min(o+24,RLEN);i++){
+        hx+=b[i].toString(16).toUpperCase().padStart(2,"0")+(i%4===3?" ":"");
+        var ch=enc==="cp037"?CP[b[i]]:String.fromCharCode(b[i]);
+        gu+=printable(ch)?ch:".";
+      }
+      row.appendChild(el("span","hx",hx));
+      row.appendChild(el("span","gut"+(enc==="cp037"?"":" bad"),gu));
+      d.appendChild(row);
+    }
+  }
+}
+Array.prototype.forEach.call(document.querySelectorAll("[data-enc]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-enc]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    enc=b.getAttribute("data-enc");renderDump();};
+});
+
+/* ---- swing ---- */
+var T=D.totals;
+[["Correct","good",money(parseFloat(T.correct)),
+  plain(T.negative)+" of "+plain(T.records)+" records are credits"],
+ ["Sign ignored","bad",money(parseFloat(T.sign_ignored)),
+  "every credit silently becomes a charge"],
+ ["Digits only","warn",plain(parseFloat(T.digits_only)),
+  "sign and the implied decimal both dropped"]
+].forEach(function(r){
+  var t=el("div","tile "+r[1]);
+  t.appendChild(el("div","lab",r[0]));t.appendChild(el("div","val",r[2]));
+  t.appendChild(el("div","note",r[3]));
+  document.getElementById("swing").appendChild(t);});
+
+/* ---- inspector ---- */
+var recIdx=0,mode="correct";
+var selIdx=F.findIndex(function(f){return f.name==="BIL-ADJUSTMENT-AMT";});
+if(selIdx<0)selIdx=0;
+var ruler=document.getElementById("ruler");
+for(var c=0;c<24;c++)ruler.appendChild(el("span",null,String(c+1)));
+function fieldAt(o){for(var i=0;i<F.length;i++){if(o>=F[i].offset&&o<F[i].offset+F[i].len)return i;}return -1;}
+function render(){
+  var b=RECS[recIdx],sel=F[selIdx];
+  document.getElementById("recid").textContent="record "+(recIdx+1)+" of "+RECS.length;
+  Array.prototype.forEach.call(document.querySelectorAll(".cbl[data-field]"),function(r){
+    r.classList.toggle("sel",r.getAttribute("data-field")===sel.name);});
+  var g=document.getElementById("bytes");g.textContent="";
+  for(var i=0;i<RLEN;i++){
+    var fi=fieldAt(i),f=fi>=0?F[fi]:null,cell=el("div","by"+(fi%2===0?" f0":""));
+    if(f&&f.offset===i)cell.className+=" start";
+    if(fi===selIdx)cell.className+=" sel";
+    var ch=CP[b[i]],isLast=f&&f.numeric&&f.offset+f.len-1===i;
+    if(isLast&&(POS.indexOf(ch)>=0||NEG.indexOf(ch)>=0))cell.className+=" sign";
+    cell.appendChild(el("span","h",b[i].toString(16).toUpperCase().padStart(2,"0")));
+    cell.appendChild(el("span","c",ch===" "?"·":ch));
+    cell.title=(f?f.name+" "+f.pic:"—")+"  offset "+i;
+    (function(k){cell.onclick=function(){var x=fieldAt(k);if(x>=0){selIdx=x;render();}};})(i);
+    g.appendChild(cell);
+  }
+  var v=readField(b,sel),kv=document.getElementById("fieldkv");kv.textContent="";
+  [["field",sel.name],["picture",sel.pic],["usage",sel.usage],
+   ["offset",sel.offset+" – "+(sel.offset+sel.len-1)],["bytes",String(sel.len)],
+   ["raw",JSON.stringify(v.text)]].forEach(function(p){
+    kv.appendChild(el("dt",null,p[0]));kv.appendChild(el("dd",null,p[1]));});
+  if(sel.numeric){
+    kv.appendChild(el("dt",null,"sign byte"));
+    var sc=v.signChar,has=sc!==undefined&&(POS.indexOf(sc)>=0||NEG.indexOf(sc)>=0);
+    kv.appendChild(el("dd",null,has?JSON.stringify(sc)+"  →  "+(v.sign<0?"negative":"positive"):"none"));
+  }
+  var rd=document.getElementById("reads");rd.textContent="";
+  if(!sel.numeric){
+    var r0=el("div","read");
+    r0.appendChild(el("span","how","character field — nothing to misread"));
+    r0.appendChild(el("span","num",JSON.stringify(v.text)));rd.appendChild(r0);
+  }else{
+    var sum={correct:0,nosign:0,digits:0};
+    RECS.forEach(function(x){var y=readField(x,sel);
+      sum.correct+=y.correct;sum.nosign+=y.nosign;sum.digits+=y.digits;});
+    [["Correct","correct",money(v.correct),money(sum.correct)],
+     ["Sign ignored","nosign",money(v.nosign),money(sum.nosign)],
+     ["Digits only","digits",plain(v.digits),plain(sum.digits)]
+    ].forEach(function(r){
+      var cls="read"+(r[1]==="correct"?" is-right":(r[1]===mode&&mode!=="correct"?" is-wrong":""));
+      var d=el("div",cls),L=el("span","how");
+      L.appendChild(document.createTextNode(r[0]));L.appendChild(el("br"));
+      var s=el("span");s.style.color="var(--ink-3)";s.style.fontSize="11.5px";
+      s.textContent="sum of these 60: "+r[3];L.appendChild(s);
+      d.appendChild(L);d.appendChild(el("span","num",r[2]));rd.appendChild(d);});
+  }
+}
+document.getElementById("prev").onclick=function(){recIdx=(recIdx-1+RECS.length)%RECS.length;render();};
+document.getElementById("next").onclick=function(){recIdx=(recIdx+1)%RECS.length;render();};
+document.getElementById("findneg").onclick=function(){
+  var sel=F[selIdx];
+  for(var k=1;k<=RECS.length;k++){var j=(recIdx+k)%RECS.length;
+    if(sel.numeric&&readField(RECS[j],sel).sign<0){recIdx=j;break;}}
+  render();};
+Array.prototype.forEach.call(document.querySelectorAll("[data-mode]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-mode]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    mode=b.getAttribute("data-mode");render();};});
+
+/* ---- findings ---- */
+var fw=document.getElementById("findings");
+D.findings.forEach(function(f){
+  var d=el("div","find "+f.severity),h=el("div","fhead");
+  h.appendChild(el("span","chip "+f.severity,f.severity));
+  h.appendChild(el("span","fcode",f.code));
+  h.appendChild(el("span","ffield",f.field));
+  d.appendChild(h);d.appendChild(el("p","fclaim",f.claim));
+  var ev=Object.keys(f.evidence).map(function(k){return k+"="+f.evidence[k];}).join("   ");
+  if(ev)d.appendChild(el("div","fev",ev+"   ·   over "+plain(f.records)+" records"));
+  if(f.impact)d.appendChild(el("div","fimp",f.impact));
+  fw.appendChild(d);});
+
+/* ---- verdicts ---- */
+var tally={};D.verdicts.forEach(function(v){tally[v.verdict]=(tally[v.verdict]||0)+1;});
+var order=["CONFIRMED","INERT","REFUTED","UNTESTABLE"];
+var tone={CONFIRMED:"good",INERT:"",REFUTED:"bad",UNTESTABLE:"warn"};
+var note={CONFIRMED:"proposed, then proved against the bytes",
+  INERT:"read correctly, but changes no value here",
+  REFUTED:"the model was wrong and the file said so",
+  UNTESTABLE:"outside the vocabulary — printed as an opinion"};
+var vt=document.getElementById("verdicttally");
+order.forEach(function(k){if(!tally[k])return;
+  var t=el("div","tile "+tone[k]);
+  t.appendChild(el("div","lab",k));t.appendChild(el("div","val",String(tally[k])));
+  t.appendChild(el("div","note",note[k]));vt.appendChild(t);});
+var vw=document.getElementById("verdicts");
+D.verdicts.slice().sort(function(a,b){return order.indexOf(a.verdict)-order.indexOf(b.verdict);})
+.forEach(function(v){
+  var d=el("div","adj"),h=el("div","ahead");
+  h.appendChild(el("span","chip "+v.verdict.toLowerCase(),v.verdict));
+  h.appendChild(el("span","fcode",v.kind));
+  h.appendChild(el("span","ffield",v.field));
+  d.appendChild(h);
+  var s1=el("div","side said");s1.appendChild(el("span","slab","the model said"));
+  s1.appendChild(document.createTextNode(v.rationale||"—"));d.appendChild(s1);
+  var s2=el("div","side meas");s2.appendChild(el("span","slab","measured"));
+  s2.appendChild(document.createTextNode(
+    Object.keys(v.evidence).map(function(k){return k+"="+v.evidence[k];}).join("   ")||"—"));
+  d.appendChild(s2);vw.appendChild(d);});
+
+renderDump();render();
+})();
+</script>

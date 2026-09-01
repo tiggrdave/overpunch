@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="A byte-level inspector for an IBM mainframe EBCDIC record: how a sign hidden in the last byte silently inverts a column of money, and how a copybook becomes a database schema without guessing.">
+<title>Overpunch Inspector</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#F7F6F3; --surface:#FFFFFF; --sunken:#EFEEEA;
+  --ink:#17212B; --ink-2:#4A5765; --ink-3:#78838F;
+  --rule:#DCDAD4; --rule-2:#C6C4BD;
+  --steel:#2F6F8F; --steel-soft:#E4EEF3;
+  --oxide:#B3341F; --oxide-soft:#F7E4E0;
+  --moss:#3E6B4F; --moss-soft:#E4EDE7;
+  --ochre:#9A6B1F; --ochre-soft:#F5EBD9;
+  --shadow:0 1px 2px rgba(23,33,43,.06),0 4px 14px rgba(23,33,43,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#12171C; --surface:#1A2027; --sunken:#141A20;
+    --ink:#E6E9EC; --ink-2:#A3AEB9; --ink-3:#77838F;
+    --rule:#2A333C; --rule-2:#3A454F;
+    --steel:#79B4D0; --steel-soft:#1B2B34;
+    --oxide:#E8836C; --oxide-soft:#33201C;
+    --moss:#89BC9B; --moss-soft:#1B2922;
+    --ochre:#D9AC63; --ochre-soft:#2C2417;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12171C; --surface:#1A2027; --sunken:#141A20;
+  --ink:#E6E9EC; --ink-2:#A3AEB9; --ink-3:#77838F;
+  --rule:#2A333C; --rule-2:#3A454F;
+  --steel:#79B4D0; --steel-soft:#1B2B34;
+  --oxide:#E8836C; --oxide-soft:#33201C;
+  --moss:#89BC9B; --moss-soft:#1B2922;
+  --ochre:#D9AC63; --ochre-soft:#2C2417;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.58}
+.wrap{max-width:1140px;margin:0 auto;padding:34px 22px 80px}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(30px,4.4vw,44px);font-weight:700;line-height:1.06}
+h2{font-size:21px;font-weight:600;margin-bottom:4px}
+h3{font-size:15px;font-weight:600}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:500}
+header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:30px}
+.sub{color:var(--ink-2);max-width:66ch;margin-top:10px;font-size:16.5px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:14px;font-size:12.5px;color:var(--ink-3)}
+.meta b{color:var(--ink-2);font-weight:500}
+section{margin-top:44px}
+.shead{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:18px}
+.shead p{margin:0;color:var(--ink-2);font-size:13.5px;max-width:64ch}
+p.lede{color:var(--ink-2);max-width:70ch;margin:0 0 16px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:17px 19px;box-shadow:var(--shadow)}
+.card .step{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--steel);font-weight:600;display:block;margin-bottom:7px}
+.card p{margin:7px 0 0;font-size:14px;color:var(--ink-2)}
+.card.alarm .step{color:var(--oxide)}
+
+.tile{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--rule-2)}
+.tile.good::before{background:var(--moss)} .tile.bad::before{background:var(--oxide)}
+.tile.warn::before{background:var(--ochre)}
+.tile .lab{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;font-family:"IBM Plex Mono",monospace}
+.tile .val{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:clamp(19px,2.5vw,25px);font-weight:600;margin-top:7px;letter-spacing:-.02em}
+.tile.good .val{color:var(--moss)} .tile.bad .val{color:var(--oxide)} .tile.warn .val{color:var(--ochre)}
+.tile .note{font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.swing{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+
+.files{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.files{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;box-shadow:var(--shadow)}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;
+  border-bottom:1px solid var(--rule);background:var(--sunken)}
+.bar .ttl{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600}
+.bar .sml{font-size:12px;color:var(--ink-3)}
+button{font:inherit;font-size:13px;background:var(--surface);color:var(--ink);
+  border:1px solid var(--rule-2);border-radius:2px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--steel);color:var(--steel)}
+button:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--steel);border-color:var(--steel);color:#fff}
+:root[data-theme="dark"] button[aria-pressed="true"],
+:root:not([data-theme="light"]) button[aria-pressed="true"]{color:#0F1418}
+.spacer{flex:1}
+
+.cbook{font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1.75;
+  padding:12px 0;max-height:430px;overflow:auto}
+.cbl{display:flex;gap:12px;padding:0 14px;white-space:pre;cursor:default}
+.cbl .ln{color:var(--ink-3);opacity:.7;user-select:none;min-width:2ch;text-align:right}
+.cbl.pick{cursor:pointer}
+.cbl.pick:hover{background:var(--steel-soft)}
+.cbl.sel{background:var(--steel-soft);box-shadow:inset 3px 0 0 var(--steel)}
+.cbl.cmt{color:var(--ink-3);font-style:italic}
+.cbl .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--oxide);background:var(--oxide-soft);padding:0 5px;border-radius:2px;align-self:center}
+
+.dump{font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.65;
+  padding:10px 0;max-height:430px;overflow:auto}
+.drec{padding:6px 14px 2px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);border-top:1px solid var(--rule);margin-top:4px}
+.drec:first-child{border-top:0;margin-top:0}
+.drow{display:flex;gap:12px;padding:0 14px;white-space:pre}
+.drow .off{color:var(--ink-3);opacity:.75}
+.drow .hx{letter-spacing:.02em}
+.drow .gut{color:var(--steel)}
+.drow .gut.bad{color:var(--ink-3);opacity:.55}
+
+.gridwrap{overflow-x:auto;padding:16px 14px 8px}
+.ruler{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;min-width:660px;margin-bottom:3px}
+.ruler span{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-3);
+  text-align:center;letter-spacing:-.04em}
+.bytes{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;min-width:660px}
+.by{border:1px solid var(--rule);border-radius:2px;padding:3px 0 2px;text-align:center;
+  cursor:pointer;background:var(--surface);transition:transform .08s}
+.by:hover{transform:translateY(-2px)}
+.by .h{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-3);display:block;line-height:1.2}
+.by .c{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;display:block;line-height:1.25}
+.by.f0{background:var(--sunken)}
+.by.sel{border-color:var(--steel);background:var(--steel-soft)}
+.by.sign{border-color:var(--oxide);background:var(--oxide-soft)}
+.by.sign .c{color:var(--oxide);font-weight:600}
+.by.start{border-left:2px solid var(--rule-2)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px 14px;font-size:12px;color:var(--ink-2)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;
+  margin-right:5px;border:1px solid var(--rule-2)}
+.detail{border-top:1px solid var(--rule);padding:16px;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:22px}
+@media(max-width:720px){.detail{grid-template-columns:1fr}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px;align-items:baseline}
+.kv dt{color:var(--ink-3);font-size:12px;letter-spacing:.05em;text-transform:uppercase;
+  font-family:"IBM Plex Mono",monospace}
+.kv dd{margin:0;font-family:"IBM Plex Mono",monospace}
+.reads{display:flex;flex-direction:column;gap:8px}
+.read{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:9px 12px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--sunken)}
+.read.is-right{border-color:var(--moss);background:var(--moss-soft)}
+.read.is-wrong{border-color:var(--oxide);background:var(--oxide-soft)}
+.read .how{font-size:12.5px;color:var(--ink-2)}
+.read .num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:16px;font-weight:600;white-space:nowrap}
+.read.is-right .num{color:var(--moss)} .read.is-wrong .num{color:var(--oxide)}
+
+.explain{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+.ex{background:var(--surface);border:1px solid var(--rule);border-left-width:3px;
+  border-radius:3px;padding:16px 18px;box-shadow:var(--shadow)}
+.ex.right{border-left-color:var(--moss)} .ex.wrong{border-left-color:var(--oxide)}
+.ex.worse{border-left-color:var(--ochre)}
+.ex h3{margin-bottom:3px} .ex.right h3{color:var(--moss)}
+.ex.wrong h3{color:var(--oxide)} .ex.worse h3{color:var(--ochre)}
+.ex p{margin:8px 0 0;font-size:13.5px;color:var(--ink-2)}
+.ex .who{font-size:12.5px;color:var(--ink-3);margin-top:9px;font-style:italic}
+pre.code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.6;
+  background:var(--sunken);border:1px solid var(--rule);border-radius:2px;
+  padding:9px 11px;margin:11px 0 0;overflow-x:auto;color:var(--ink)}
+pre.code .cm{color:var(--ink-3)}
+
+.finds{display:flex;flex-direction:column;gap:9px}
+.find{background:var(--surface);border:1px solid var(--rule);border-left-width:3px;border-radius:3px;
+  padding:12px 15px;box-shadow:var(--shadow)}
+.find.critical{border-left-color:var(--oxide)}
+.find.warn{border-left-color:var(--ochre)}
+.find.info{border-left-color:var(--steel)}
+.fhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;border:1px solid currentColor}
+.chip.critical{color:var(--oxide);background:var(--oxide-soft)}
+.chip.warn{color:var(--ochre);background:var(--ochre-soft)}
+.chip.info{color:var(--steel);background:var(--steel-soft)}
+.chip.confirmed{color:var(--moss);background:var(--moss-soft)}
+.chip.refuted{color:var(--oxide);background:var(--oxide-soft)}
+.chip.inert{color:var(--ink-2);background:var(--sunken)}
+.chip.untestable{color:var(--ochre);background:var(--ochre-soft)}
+.fcode{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+.ffield{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-2)}
+.fclaim{margin:7px 0 0;font-size:13.5px;color:var(--ink-2);max-width:74ch}
+.fev{margin-top:7px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.fimp{margin-top:6px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink);
+  background:var(--sunken);padding:6px 9px;border-radius:2px;overflow-x:auto;white-space:nowrap}
+.adj{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:12px 15px;
+  box-shadow:var(--shadow);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 22px}
+@media(max-width:720px){.adj{grid-template-columns:1fr}}
+.adj .ahead{grid-column:1/-1;display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:5px}
+.side{font-size:13px}
+.side .slab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:2px}
+.side.said{color:var(--ink-2)}
+.side.meas{color:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.grp{display:flex;flex-direction:column;gap:9px}
+.vocab{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:11px}
+.vc{border:1px solid var(--rule);border-radius:3px;padding:11px 14px;background:var(--surface)}
+.vc dt{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600;color:var(--steel)}
+.vc dd{margin:4px 0 0;font-size:13px;color:var(--ink-2)}
+.foot{margin-top:46px;padding-top:16px;border-top:1px solid var(--rule);font-size:12.5px;
+  color:var(--ink-3);max-width:78ch}
+.foot code{font-family:"IBM Plex Mono",monospace;background:var(--sunken);padding:1px 5px;
+  border-radius:2px;color:var(--ink-2)}
+.extract{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.extract{grid-template-columns:1fr}}
+.decisions{display:flex;flex-direction:column;gap:12px}
+.dec{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--ochre);
+  border-radius:3px;padding:13px 15px;box-shadow:var(--shadow)}
+.dec.answered{border-left-color:var(--moss)}
+.dec .dk{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ochre);font-weight:600}
+.dec.answered .dk{color:var(--moss)}
+.dec .dq{font-size:13px;color:var(--ink-2);margin:6px 0 9px}
+select{font:inherit;font-size:12.5px;font-family:"IBM Plex Mono",monospace;width:100%;
+  background:var(--surface);color:var(--ink);border:1px solid var(--rule-2);
+  border-radius:2px;padding:5px 7px}
+select:focus-visible{outline:2px solid var(--steel);outline-offset:1px}
+.policy{background:var(--sunken);border:1px solid var(--rule);border-radius:3px;padding:12px 15px}
+.policy .dk{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600;display:block;margin-bottom:8px}
+.opts{display:flex;gap:7px;flex-wrap:wrap}
+.outpane{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:340px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 13px;border-bottom:1px solid var(--rule);
+  background:var(--sunken);align-items:center}
+pre.out{margin:0;padding:14px 16px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  line-height:1.6;overflow:auto;flex:1;max-height:460px;color:var(--ink);white-space:pre}
+pre.out.refused{color:var(--oxide);background:var(--oxide-soft)}
+.outnote{padding:9px 16px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-2)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<style>
+html{-webkit-text-size-adjust:100%}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">COBOL copybook &middot; EBCDIC cp037 &middot; 72-byte fixed record</div>
+  <h1>The sign is in the last byte</h1>
+  <p class="sub">A mainframe extract is bytes, not a file format. Nothing inside it says where
+  one field ends and the next begins, whether a number is negative, or where its decimal point
+  belongs. All of that lives in a separate document — and when the two disagree, the load still
+  succeeds and the numbers are still wrong.</p>
+  <div class="meta">
+    <span><b>Layout</b> UTLBILL.cpy (synthetic)</span>
+    <span><b>Records</b> 100,000</span>
+    <span><b>Proposals by</b> <span class="mono" id="modelname"></span></span>
+    <span><b>Adjudicated by</b> the bytes</span>
+  </div>
+</header>
+
+<section>
+  <div class="shead"><div><h2>Who has this problem</h2>
+  <p>Anyone moving decades of mainframe data into a warehouse, a lake, or a new system —
+  which right now is most large banks, insurers, utilities and government agencies in Europe.</p></div></div>
+  <div class="cards">
+    <div class="card"><span class="step">What you are given</span>
+      <h3>Two files and no schema</h3>
+      <p>A flat file of fixed-length records in EBCDIC, and a COBOL copybook describing the layout.
+      The file has no header, no delimiters and no types. The copybook is the only thing that makes
+      it readable — and it was last edited by someone who has retired.</p></div>
+    <div class="card"><span class="step">What people do</span>
+      <h3>Write a loader in an afternoon</h3>
+      <p>Slice each record at fixed offsets, strip anything that isn't a digit, cast to a number,
+      load it. It runs. It produces a table. Row counts match the source exactly, which is the
+      check most teams stop at.</p></div>
+    <div class="card alarm"><span class="step">What goes wrong</span>
+      <h3>Nothing raises an error</h3>
+      <p>Credits arrive as charges. Amounts arrive a hundred times too large. A code column
+      silently falls through every branch. There is no exception, no rejected row, no red mark —
+      just a column of plausible numbers that are wrong, sitting in a warehouse being reported on.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>The two files you are handed</h2>
+  <p>Click any field in the copybook to select it in the inspector below. The raw bytes are the
+  same 60 records, shown as they actually sit on disk.</p></div></div>
+  <div class="files">
+    <div class="panel">
+      <div class="bar"><span class="ttl">UTLBILL.cpy</span>
+        <span class="sml">the layout — 22 lines of COBOL</span></div>
+      <div class="cbook" id="cbook"></div>
+    </div>
+    <div class="panel">
+      <div class="bar"><span class="ttl">UTLBILL.dat</span>
+        <span class="sml">the data — 72 bytes per record</span>
+        <span class="spacer"></span>
+        <button data-enc="cp037" aria-pressed="true">EBCDIC</button>
+        <button data-enc="ascii" aria-pressed="false">As text</button>
+      </div>
+      <div class="dump" id="dump"></div>
+    </div>
+  </div>
+  <p class="lede" style="margin-top:14px">Press <b>As text</b> to see what happens when this file
+  is opened in an ordinary editor. The bytes are unchanged; only the assumed character set differs.
+  EBCDIC is not ASCII, and nothing in the file announces which one it is.</p>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Three ways to read the same column</h2>
+  <p>Not three settings. Three real loaders, of which two are common and both are wrong.</p></div></div>
+  <div class="explain">
+    <div class="ex right"><h3>Correct</h3>
+      <p>Recover the digit hiding under the sign, apply the sign, then shift the implied decimal
+      point that the copybook declares and the file does not store.</p>
+      <pre class="code"><span class="cm"># PIC S9(08)V99, EBCDIC, trailing overpunch</span>
+digits, sign = split_overpunch(text)
+value = Decimal(digits) * sign
+value = value.scaleb(-2)   <span class="cm"># the V99</span></pre>
+      <p class="who">What <b>overpunch</b> does.</p></div>
+    <div class="ex wrong"><h3>Sign ignored</h3>
+      <p>The last byte of a negative value is <span class="mono">}</span> or <span class="mono">J</span>–<span class="mono">R</span>,
+      not a digit. Strip non-digits and it disappears — along with the digit sharing that byte.
+      Every credit silently becomes a charge.</p>
+      <pre class="code">value = int(re.sub(r"\D", "", text)) / 100</pre>
+      <p class="who">The most common mistake, because it looks defensive.</p></div>
+    <div class="ex worse"><h3>Digits only</h3>
+      <p>The same, plus forgetting that <span class="mono">V99</span> means two decimal places that
+      are never written down. Cents are read as whole units and every figure is a hundred times
+      too large.</p>
+      <pre class="code">value = int(re.sub(r"\D", "", text))</pre>
+      <p class="who">Usually spotted — but only when someone already knows the true total.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the difference costs</h2>
+  <p>BIL-ADJUSTMENT-AMT totalled across all 100,000 records by the tool. Same bytes each time.</p></div></div>
+  <div class="swing" id="swing"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Look at a record yourself</h2>
+  <p>60 verbatim records are embedded in this page and decoded here in your browser — these
+  figures are computed live, not quoted. Click a byte to select its field.</p></div></div>
+  <div class="panel">
+    <div class="bar">
+      <button id="prev">&larr; Prev</button>
+      <button id="next">Next &rarr;</button>
+      <button id="findneg">Jump to a credit</button>
+      <span class="mono sml" id="recid"></span>
+      <span class="spacer"></span>
+      <span class="eyebrow">Read as</span>
+      <button data-mode="correct" aria-pressed="true">Correct</button>
+      <button data-mode="nosign" aria-pressed="false">Sign ignored</button>
+      <button data-mode="digits" aria-pressed="false">Digits only</button>
+    </div>
+    <div class="gridwrap">
+      <div class="ruler" id="ruler"></div>
+      <div class="bytes" id="bytes"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--steel-soft);border-color:var(--steel)"></i>selected field</span>
+      <span><i style="background:var(--oxide-soft);border-color:var(--oxide)"></i>sign byte — not a digit</span>
+      <span><i style="background:var(--sunken)"></i>alternating field bands</span>
+    </div>
+    <div class="detail">
+      <div><dl class="kv" id="fieldkv"></dl></div>
+      <div class="reads" id="reads"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the scan measured</h2>
+  <p>No model involved. Every line carries the number of records it was observed in, and where
+  the consequence is arithmetic, the arithmetic.</p></div></div>
+  <div class="finds" id="findings"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>What the model proposed, and what the bytes said back</h2>
+  <p>Nemotron may only propose from a closed vocabulary the prober knows how to test. A
+  hallucination cannot become a finding here — only a refuted hypothesis.</p></div></div>
+  <div class="swing" id="verdicttally" style="margin-bottom:16px"></div>
+  <div class="grp" id="verdicts"></div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>From copybook to a database</h2>
+  <p>A copybook describes bytes. A schema needs answers the bytes do not carry. So nothing is
+  generated from the copybook — a <b>plan</b> is, and the plan is what a person reviews and edits.
+  Everything below is real output of the tool.</p></div></div>
+  <div class="bar" style="border:1px solid var(--rule);border-bottom:0;border-radius:3px 3px 0 0">
+    <span class="eyebrow">Layout</span>
+    <button data-layout="utlbill" aria-pressed="true">Utility billing</button>
+    <button data-layout="torture" aria-pressed="false">Torture record</button>
+    <span class="spacer"></span>
+    <span class="mono sml" id="planmeta"></span>
+  </div>
+  <div class="extract" style="border:1px solid var(--rule);border-top:0;border-radius:0 0 3px 3px;
+       padding:16px;background:var(--paper)">
+    <div class="decisions" id="decisions"></div>
+    <div class="outpane">
+      <div class="tabs">
+        <button data-fmt="ddl" aria-pressed="true">PostgreSQL DDL</button>
+        <button data-fmt="jsonschema" aria-pressed="false">JSON Schema</button>
+        <button data-fmt="loader" aria-pressed="false">Loader</button>
+        <button data-fmt="records" aria-pressed="false">Records (JSON)</button>
+      </div>
+      <pre class="out" id="out"></pre>
+      <div class="outnote" id="outnote"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><div><h2>Vocabulary</h2>
+  <p>Six terms that carry all the trouble.</p></div></div>
+  <dl class="vocab">
+    <div class="vc"><dt>Copybook</dt><dd>A fragment of COBOL declaring a record's fields in order.
+      It is the schema, kept in a separate file from the data, with nothing enforcing that the two agree.</dd></div>
+    <div class="vc"><dt>EBCDIC</dt><dd>IBM's character set, older than ASCII and incompatible with it.
+      Several variants exist — cp037, cp500, cp1047 — differing on characters people actually use.</dd></div>
+    <div class="vc"><dt>PIC S9(08)V99</dt><dd>Eight digits, then two more after an implied decimal
+      point. <span class="mono">S</span> means signed. Ten bytes on disk, no point, no sign character.</dd></div>
+    <div class="vc"><dt>Overpunch</dt><dd>The sign, encoded into the upper half of the last byte,
+      leaving the digit in the lower half. A term inherited from punched cards, where it was an
+      extra hole in the same column.</dd></div>
+    <div class="vc"><dt>COMP-3</dt><dd>Packed decimal: two digits per byte, sign in the final
+      nibble. Read as text it is unprintable garbage; read as a string it is silently truncated.</dd></div>
+    <div class="vc"><dt>88-level</dt><dd>A named condition on a field's value. Two of them can
+      claim the same value, which no tool can resolve — and one that guesses is worse than one that stops.</dd></div>
+  </dl>
+</section>
+
+<p class="foot">Every figure on this page is real output of <code>overpunch</code> run against
+<code>demo/UTLBILL.dat</code>. The record layout, its domain and every byte of its data are invented
+for the demo — no copybook or dataset belonging to any organisation appears here. Full-file totals
+come from the tool's own 100,000-record pass; the inspector's figures are computed in your browser
+from the 60 records embedded in this page, by a second decoder written independently of the first.
+Comparing the two across 660 field reads is how a digit-dropping bug in the original was found.</p>
+</div>
+
+<script id="payload" type="application/json">{"record_len":72,"fields":[{"name":"BIL-ACCOUNT-NO","pic":"9(09)","usage":"DISPLAY","offset":0,"len":9,"signed":false,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-METER-ID","pic":"S9(07)","usage":"DISPLAY","offset":9,"len":7,"signed":true,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-CC","pic":"9(02)","usage":"DISPLAY","offset":16,"len":2,"signed":false,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-YY","pic":"9(02)","usage":"DISPLAY","offset":18,"len":2,"signed":false,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-MM","pic":"9(02)","usage":"DISPLAY","offset":20,"len":2,"signed":false,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-DD","pic":"9(02)","usage":"DISPLAY","offset":22,"len":2,"signed":false,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-CHARGE-AMT","pic":"S9(08)V99","usage":"DISPLAY","offset":24,"len":10,"signed":true,"scale":2,"numeric":true,"conditions":{}},{"name":"BIL-ADJUSTMENT-AMT","pic":"S9(08)V99","usage":"DISPLAY","offset":34,"len":10,"signed":true,"scale":2,"numeric":true,"conditions":{}},{"name":"BIL-BALANCE-AMT","pic":"9(08)V99","usage":"DISPLAY","offset":44,"len":10,"signed":false,"scale":2,"numeric":true,"conditions":{}},{"name":"BIL-RATE-CLASS","pic":"X(01)","usage":"DISPLAY","offset":54,"len":1,"signed":false,"scale":0,"numeric":false,"conditions":{"RATE-RESIDENTIAL":["R"],"RATE-COMMERCIAL":["C"],"RATE-RELIEF":["R"]}},{"name":"BIL-CYCLE-CNT","pic":"S9(04)","usage":"COMP","offset":55,"len":2,"signed":true,"scale":0,"numeric":true,"conditions":{}},{"name":"BIL-PACKED-TOTAL","pic":"S9(07)V99","usage":"COMP-3","offset":57,"len":5,"signed":true,"scale":2,"numeric":true,"conditions":{}},{"name":"FILLER","pic":"X(10)","usage":"DISPLAY","offset":62,"len":10,"signed":false,"scale":0,"numeric":false,"conditions":{}}],"records":["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"],"copybook":[{"n":1,"text":"000100* --------------------------------------------------------------","field":null,"comment":true},{"n":2,"text":"000200* UTILITY BILLING DETAIL RECORD - SYNTHETIC.","field":null,"comment":true},{"n":3,"text":"000300* Invented for demonstration. Not derived from any real system.","field":null,"comment":true},{"n":4,"text":"000400* --------------------------------------------------------------","field":null,"comment":true},{"n":5,"text":"000500 01  BILLING-DETAIL-RECORD.","field":null,"comment":false},{"n":6,"text":"000600     05  BIL-ACCOUNT-NO        PIC 9(09).","field":"BIL-ACCOUNT-NO","comment":false},{"n":7,"text":"000700     05  BIL-METER-ID          PIC S9(07).","field":"BIL-METER-ID","comment":false},{"n":8,"text":"000800     05  BIL-READ-DATE.","field":null,"comment":false},{"n":9,"text":"000900         10  BIL-CC            PIC 9(02).","field":"BIL-CC","comment":false},{"n":10,"text":"001000         10  BIL-YY            PIC 9(02).","field":"BIL-YY","comment":false},{"n":11,"text":"001100         10  BIL-MM            PIC 9(02).","field":"BIL-MM","comment":false},{"n":12,"text":"001200         10  BIL-DD            PIC 9(02).","field":"BIL-DD","comment":false},{"n":13,"text":"001300     05  BIL-CHARGE-AMT        PIC S9(08)V99.","field":"BIL-CHARGE-AMT","comment":false},{"n":14,"text":"001400     05  BIL-ADJUSTMENT-AMT    PIC S9(08)V99.","field":"BIL-ADJUSTMENT-AMT","comment":false},{"n":15,"text":"001500     05  BIL-BALANCE-AMT       PIC 9(08)V99.","field":"BIL-BALANCE-AMT","comment":false},{"n":16,"text":"001600     05  BIL-RATE-CLASS        PIC X(01).","field":"BIL-RATE-CLASS","comment":false},{"n":17,"text":"001700         88  RATE-RESIDENTIAL  VALUE 'R'.","field":null,"comment":false},{"n":18,"text":"001800         88  RATE-COMMERCIAL   VALUE 'C'.","field":null,"comment":false},{"n":19,"text":"001900         88  RATE-RELIEF       VALUE 'R'.","field":null,"comment":false},{"n":20,"text":"002000     05  BIL-CYCLE-CNT         PIC S9(04) COMP.","field":"BIL-CYCLE-CNT","comment":false},{"n":21,"text":"002100     05  BIL-PACKED-TOTAL      PIC S9(07)V99 COMP-3.","field":"BIL-PACKED-TOTAL","comment":false},{"n":22,"text":"002200     05  FILLER                PIC X(10).","field":"FILLER","comment":false}],"cp037":"\u0000\u0001\u0002\u0003\u009c\t\u0086\u007f\u0097\u008d\u008e\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u009d\u0085\b\u0087\u0018\u0019\u0092\u008f\u001c\u001d\u001e\u001f\u0080\u0081\u0082\u0083\u0084\n\u0017\u001b\u0088\u0089\u008a\u008b\u008c\u0005\u0006\u0007\u0090\u0091\u0016\u0093\u0094\u0095\u0096\u0004\u0098\u0099\u009a\u009b\u0014\u0015\u009e\u001a \u00a0\u00e2\u00e4\u00e0\u00e1\u00e3\u00e5\u00e7\u00f1\u00a2.<(+|&\u00e9\u00ea\u00eb\u00e8\u00ed\u00ee\u00ef\u00ec\u00df!$*);\u00ac-/\u00c2\u00c4\u00c0\u00c1\u00c3\u00c5\u00c7\u00d1\u00a6,%_>?\u00f8\u00c9\u00ca\u00cb\u00c8\u00cd\u00ce\u00cf\u00cc`:#@'=\"\u00d8abcdefghi\u00ab\u00bb\u00f0\u00fd\u00fe\u00b1\u00b0jklmnopqr\u00aa\u00ba\u00e6\u00b8\u00c6\u00a4\u00b5~stuvwxyz\u00a1\u00bf\u00d0\u00dd\u00de\u00ae^\u00a3\u00a5\u00b7\u00a9\u00a7\u00b6\u00bc\u00bd\u00be[]\u00af\u00a8\u00b4\u00d7{ABCDEFGHI\u00ad\u00f4\u00f6\u00f2\u00f3\u00f5}JKLMNOPQR\u00b9\u00fb\u00fc\u00f9\u00fa\u00ff\\\u00f7STUVWXYZ\u00b2\u00d4\u00d6\u00d2\u00d3\u00d50123456789\u00b3\u00db\u00dc\u00d9\u00da\u009f","model":"nvidia/nemotron-3-super-120b-a12b","findings":[{"code":"TRAILING_SIGN","severity":"critical","field":"BIL-ADJUSTMENT-AMT","claim":"the last byte carries the sign, not a digit; dropping it inverts the negative records","evidence":{"negative":"71,294","positive":"28,706","share_negative":"71.3%"},"records":100000,"impact":"correct total -85,576,733.06; sign ignored 200,006,656.22 (overstated by 285,583,389.28)"},{"code":"UNDECLARED_SIGN","severity":"critical","field":"BIL-BALANCE-AMT","claim":"copybook declares this field unsigned (PIC 9) but the bytes carry a sign in the final position; the copybook is wrong about the data","evidence":{"signed_records":"7,107","share":"7.1%","declared":"9(08)V99"},"records":100000,"impact":"read as declared 600,551,941.03; honouring the sign 515,450,108.05 (difference 85,101,832.98)"},{"code":"AMBIGUOUS_CONDITION","severity":"critical","field":"BIL-RATE-CLASS","claim":"value 'R' is claimed by 2 different condition names; which one is meant cannot be settled from the copybook or the data","evidence":{"value":"R","names":"RATE-RESIDENTIAL, RATE-RELIEF"},"records":100000,"impact":null},{"code":"IMPLIED_DECIMAL","severity":"warn","field":"BIL-ADJUSTMENT-AMT","claim":"2 implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^2 too large","evidence":{"declared":"S9(08)V99","scale":2},"records":100000,"impact":"correct total -85,576,733.06; digits-only read 2,000,021,449"},{"code":"IMPLIED_DECIMAL","severity":"warn","field":"BIL-BALANCE-AMT","claim":"2 implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^2 too large","evidence":{"declared":"9(08)V99","scale":2},"records":100000,"impact":"correct total 600,551,941.03; digits-only read 56,225,608,432"},{"code":"IMPLIED_DECIMAL","severity":"warn","field":"BIL-CHARGE-AMT","claim":"2 implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^2 too large","evidence":{"declared":"S9(08)V99","scale":2},"records":100000,"impact":"correct total 500,790,105.01; digits-only read 5,007,856,143"},{"code":"WIDTH_UNDERFILL","severity":"warn","field":"BIL-METER-ID","claim":"declared 7 integer digits but no record uses more than 6; the source may be narrower than the copybook, or values may be truncated","evidence":{"declared_digits":7,"widest_observed":6},"records":100000,"impact":null},{"code":"UNCOVERED_VALUE","severity":"warn","field":"BIL-RATE-CLASS","claim":"values appear in the data that no 88-level accounts for; code that switches on the declared conditions will fall through for these records","evidence":{"values":"'M' x6,847","records_affected":"6,847"},"records":100000,"impact":null},{"code":"POPULATED_FILLER","severity":"warn","field":"FILLER @ offset 62","claim":"declared FILLER but carries data; something is in this field that the copybook does not describe","evidence":{"non_blank":"100,000","distinct_values":9000,"examples":"'CYCLE85110', 'CYCLE49490', 'CYCLE58010'"},"records":100000,"impact":null},{"code":"SIGN_PRESENT_ALL_POSITIVE","severity":"info","field":"BIL-CHARGE-AMT","claim":"the final byte is a sign, not a digit, but every record in this file is positive; a digits-only read happens to agree here and will stop agreeing the first time a credit appears","evidence":{"positive":"100,000","negative":"0"},"records":100000,"impact":null},{"code":"SIGN_PRESENT_ALL_POSITIVE","severity":"info","field":"BIL-METER-ID","claim":"the final byte is a sign, not a digit, but every record in this file is positive; a digits-only read happens to agree here and will stop agreeing the first time a credit appears","evidence":{"positive":"100,000","negative":"0"},"records":100000,"impact":null}],"verdicts":[{"field":"BIL-METER-ID","kind":"TRAILING_SIGN","rationale":"non_digit_final_byte is 20000 (all records) while widest_significant_digits is only 6, indicating the final byte holds a sign overpunch rather than a digit.","meaning":"Meter ID includes a sign overpunch in its last byte.","verdict":"INERT","evidence":{"negative_records":"0","of":"100,000","declared":"S9(07)","note":"sign is present but every record is positive"}},{"field":"BIL-CHARGE-AMT","kind":"TRAILING_SIGN","rationale":"non_digit_final_byte is 20000 (all records) and widest_significant_digits is 6 (<10), showing the final byte is not a digit.","meaning":"Charge amount stores its sign in the final byte.","verdict":"INERT","evidence":{"negative_records":"0","of":"100,000","declared":"S9(08)V99","note":"sign is present but every record is positive"}},{"field":"BIL-ADJUSTMENT-AMT","kind":"TRAILING_SIGN","rationale":"non_digit_final_byte is 20000 (all records) and widest_significant_digits is 6 (<10), indicating a non\u2011digit final byte.","meaning":"Adjustment amount stores its sign in the final byte.","verdict":"CONFIRMED","evidence":{"negative_records":"71,294","of":"100,000","declared":"S9(08)V99"}},{"field":"BIL-BALANCE-AMT","kind":"UNDECLARED_SIGN","rationale":"Field is declared unsigned PIC 9(08)V99 yet 1,436 records have a non\u2011digit final byte, implying an unexpected sign.","meaning":"Some balance amounts carry a sign in the last byte despite being defined as unsigned.","verdict":"CONFIRMED","evidence":{"signed_records":"7,107","declared":"9(08)V99"}},{"field":"BIL-RATE-CLASS","kind":"AMBIGUOUS_CONDITION","rationale":"Two 88\u2011level names (RATE-RESIDENTIAL and RATE-RELIEF) both map to the same value 'R'.","meaning":"The value 'R' is ambiguous\u2014it could indicate residential or relief rate class.","verdict":"CONFIRMED","evidence":{"duplicated_values":"R"}},{"field":"FILLER","kind":"POPULATED_FILLER","rationale":"Distinct values count is 8,069 out of 20,000 records, showing the filler contains varied non\u2011blank data.","meaning":"The filler field actually holds data rather than being unused.","verdict":"CONFIRMED","evidence":{"non_blank":"100,000","of":"100,000"}},{"field":"BIL-METER-ID","kind":"WIDTH_UNDERFILL","rationale":"Widest significant digits observed is 6 while the PIC specifies 7 digits, meaning the full width is never used.","meaning":"Meter ID never utilizes its declared full width; leading positions are consistently blank or zero.","verdict":"CONFIRMED","evidence":{"declared_digits":7,"scale":0,"widest_observed":6}},{"field":"BIL-CHARGE-AMT","kind":"WIDTH_UNDERFILL","rationale":"Widest significant digits observed is 6 (<10), indicating the declared width is not fully utilized.","meaning":"Charge amount field does not use its full declared width.","verdict":"REFUTED","evidence":{"declared_digits":8,"scale":2,"widest_observed":6}},{"field":"BIL-ADJUSTMENT-AMT","kind":"WIDTH_UNDERFILL","rationale":"Widest significant digits observed is 6 (<10), showing the field is not fully filled.","meaning":"Adjustment amount field does not use its full declared width.","verdict":"REFUTED","evidence":{"declared_digits":8,"scale":2,"widest_observed":6}},{"field":"BIL-BALANCE-AMT","kind":"WIDTH_UNDERFILL","rationale":"Widest significant digits observed is 7 (<10), indicating the declared width is never fully used.","meaning":"Balance amount field does not utilize its full declared width.","verdict":"REFUTED","evidence":{"declared_digits":8,"scale":2,"widest_observed":7}},{"field":"BIL-CHARGE-AMT","kind":"IMPLIED_DECIMAL","rationale":"PIC S9(08)V99 specifies two implied decimal places with no actual decimal point stored.","meaning":"Charge amount value is scaled by 100; decimal point must be inferred.","verdict":"CONFIRMED","evidence":{"scale":2,"declared":"S9(08)V99"}},{"field":"BIL-ADJUSTMENT-AMT","kind":"IMPLIED_DECIMAL","rationale":"PIC S9(08)V99 indicates two implied decimal places without a stored point.","meaning":"Adjustment amount is stored as integer cents; decimal point is implied.","verdict":"CONFIRMED","evidence":{"scale":2,"declared":"S9(08)V99"}},{"field":"BIL-BALANCE-AMT","kind":"IMPLIED_DECIMAL","rationale":"PIC 9(08)V99 denotes two implied decimal places, no explicit decimal point in the field.","meaning":"Balance amount is stored as integer cents; decimal point is implied.","verdict":"CONFIRMED","evidence":{"scale":2,"declared":"9(08)V99"}}],"totals":{"records":100000,"correct":"-85576733.06","sign_ignored":"200006656.22","digits_only":"2000021449","negative":71294,"positive":28706},"plans":{"utlbill":{"copybook":"UTLBILL.cpy","plan":{"overpunch_plan":1,"source":{"copybook":"demo/UTLBILL.cpy","record_bytes":72,"encoding":"cp037","record_format":"fixed"},"target":{"dialect":"postgresql","table":"billing_detail_record"},"policies":{"identifier_style":"snake_case","trim_trailing_spaces":true,"null_when":["low_values"],"float_encoding":"ibm_hex","occurs":"child_table"},"unresolved":[],"tables":[{"name":"billing_detail_record","kind":"root","columns":[{"field":"BIL-ACCOUNT-NO","name":"bil_account_no","type":"INTEGER","offset":0,"bytes":9,"nullable":true,"note":""},{"field":"BIL-METER-ID","name":"bil_meter_id","type":"INTEGER","offset":9,"bytes":7,"nullable":true,"note":""},{"field":"BIL-CC","name":"bil_cc","type":"SMALLINT","offset":16,"bytes":2,"nullable":true,"note":""},{"field":"BIL-YY","name":"bil_yy","type":"SMALLINT","offset":18,"bytes":2,"nullable":true,"note":""},{"field":"BIL-MM","name":"bil_mm","type":"SMALLINT","offset":20,"bytes":2,"nullable":true,"note":""},{"field":"BIL-DD","name":"bil_dd","type":"SMALLINT","offset":22,"bytes":2,"nullable":true,"note":""},{"field":"BIL-CHARGE-AMT","name":"bil_charge_amt","type":"NUMERIC(10,2)","offset":24,"bytes":10,"nullable":true,"note":""},{"field":"BIL-ADJUSTMENT-AMT","name":"bil_adjustment_amt","type":"NUMERIC(10,2)","offset":34,"bytes":10,"nullable":true,"note":""},{"field":"BIL-BALANCE-AMT","name":"bil_balance_amt","type":"NUMERIC(10,2)","offset":44,"bytes":10,"nullable":true,"note":""},{"field":"BIL-RATE-CLASS","name":"bil_rate_class","type":"VARCHAR(1)","offset":54,"bytes":1,"nullable":true,"note":""},{"field":"BIL-CYCLE-CNT","name":"bil_cycle_cnt","type":"SMALLINT","offset":55,"bytes":2,"nullable":true,"note":""},{"field":"BIL-PACKED-TOTAL","name":"bil_packed_total","type":"NUMERIC(9,2)","offset":57,"bytes":5,"nullable":true,"note":""}],"parent":null,"occurs_of":null,"occurs_max":1,"depends_on":null}]},"rendered":{"ddl":"-- generated by overpunch from demo/UTLBILL.cpy\n-- 72-byte fixed records, cp037\n-- policies: {\"identifier_style\": \"snake_case\", \"trim_trailing_spaces\": true, \"null_when\": [\"low_values\"], \"float_encoding\": \"ibm_hex\", \"occurs\": \"child_table\"}\n\nCREATE TABLE billing_detail_record (\n    bil_account_no            INTEGER,\n    bil_meter_id              INTEGER,\n    bil_cc                    SMALLINT,\n    bil_yy                    SMALLINT,\n    bil_mm                    SMALLINT,\n    bil_dd                    SMALLINT,\n    bil_charge_amt            NUMERIC(10,2),\n    bil_adjustment_amt        NUMERIC(10,2),\n    bil_balance_amt           NUMERIC(10,2),\n    bil_rate_class            VARCHAR(1),\n    bil_cycle_cnt             SMALLINT,\n    bil_packed_total          NUMERIC(9,2)\n);\n","jsonschema":"{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"billing_detail_record\",\n  \"description\": \"generated by overpunch from demo/UTLBILL.cpy\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"bil_account_no\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-ACCOUNT-NO\",\n      \"x-offset\": 0,\n      \"x-bytes\": 9\n    },\n    \"bil_meter_id\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-METER-ID\",\n      \"x-offset\": 9,\n      \"x-bytes\": 7\n    },\n    \"bil_cc\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-CC\",\n      \"x-offset\": 16,\n      \"x-bytes\": 2\n    },\n    \"bil_yy\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-YY\",\n      \"x-offset\": 18,\n      \"x-bytes\": 2\n    },\n    \"bil_mm\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-MM\",\n      \"x-offset\": 20,\n      \"x-bytes\": 2\n    },\n    \"bil_dd\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-DD\",\n      \"x-offset\": 22,\n      \"x-bytes\": 2\n    },\n    \"bil_charge_amt\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"BIL-CHARGE-AMT\",\n      \"x-offset\": 24,\n      \"x-bytes\": 10\n    },\n    \"bil_adjustment_amt\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"BIL-ADJUSTMENT-AMT\",\n      \"x-offset\": 34,\n      \"x-bytes\": 10\n    },\n    \"bil_balance_amt\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"BIL-BALANCE-AMT\",\n      \"x-offset\": 44,\n      \"x-bytes\": 10\n    },\n    \"bil_rate_class\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"BIL-RATE-CLASS\",\n      \"x-offset\": 54,\n      \"x-bytes\": 1\n    },\n    \"bil_cycle_cnt\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"BIL-CYCLE-CNT\",\n      \"x-offset\": 55,\n      \"x-bytes\": 2\n    },\n    \"bil_packed_total\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"BIL-PACKED-TOTAL\",\n      \"x-offset\": 57,\n      \"x-bytes\": 5\n    }\n  }\n}","loader":"#!/bin/sh\n# generated by overpunch - decode, then load.\nset -eu\n\noverpunch decode demo/UTLBILL.cpy \"$1\" \\\n    --encoding cp037 -o records.csv\n\npsql \"$DATABASE_URL\" -c \"\\\\copy billing_detail_record (bil_account_no, bil_meter_id, bil_cc, bil_yy, bil_mm, bil_dd, bil_charge_amt, bil_adjustment_amt, bil_balance_amt, bil_rate_class, bil_cycle_cnt, bil_packed_total) FROM 'records.csv' WITH (FORMAT csv, HEADER true)\"\n"},"record_bytes":72},"torture_open":{"copybook":"TORTURE.cpy","plan":{"overpunch_plan":1,"source":{"copybook":"demo/TORTURE.cpy","record_bytes":161,"encoding":"cp037","record_format":"fixed"},"target":{"dialect":"postgresql","table":"torture_record"},"policies":{"identifier_style":"snake_case","trim_trailing_spaces":true,"null_when":["low_values"],"float_encoding":"ibm_hex","occurs":"child_table"},"unresolved":[{"id":"redefines:TR-PAYLOAD","kind":"REDEFINES_BRANCH","question":"TR-PAYLOAD is redefined by TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY. The same bytes mean different things per record and nothing in the copybook says which. Name the field that decides, and what its values mean.","options":["TR-PAYLOAD","TR-PAYLOAD-PERSON","TR-PAYLOAD-POLICY","raw_bytes"],"resolve_with":{"discriminator":"<FIELD-NAME>","map":{"<value>":"TR-PAYLOAD-PERSON"}},"resolution":null},{"id":"primary_key","kind":"PRIMARY_KEY","question":"child tables need a key back to the parent row. Name the field (or fields) that identify a record uniquely.","options":["TR-REGION","TR-ACCOUNT","TR-SIGNED-DISPLAY","TR-SIGN-LEADING","TR-SIGN-TRAIL-SEP","TR-PACKED","TR-PACKED-ODD","TR-BIN-HALF","TR-BIN-FULL","TR-BIN-DOUBLE","TR-UNSIGNED-BIN","TR-FLOAT-SHORT","TR-FLOAT-LONG","TR-ENTRY-COUNT","TR-DISCRIMINATOR"],"resolve_with":{"primary_key":["<FIELD-NAME>"]},"resolution":null}],"tables":[{"name":"torture_record","kind":"root","columns":[{"field":"TR-REGION","name":"tr_region","type":"VARCHAR(2)","offset":0,"bytes":2,"nullable":true,"note":""},{"field":"TR-ACCOUNT","name":"tr_account","type":"BIGINT","offset":2,"bytes":10,"nullable":true,"note":""},{"field":"TR-SIGNED-DISPLAY","name":"tr_signed_display","type":"NUMERIC(9,2)","offset":12,"bytes":9,"nullable":true,"note":""},{"field":"TR-SIGN-LEADING","name":"tr_sign_leading","type":"INTEGER","offset":21,"bytes":6,"nullable":true,"note":""},{"field":"TR-SIGN-TRAIL-SEP","name":"tr_sign_trail_sep","type":"INTEGER","offset":27,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED","name":"tr_packed","type":"NUMERIC(11,2)","offset":33,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED-ODD","name":"tr_packed_odd","type":"SMALLINT","offset":39,"bytes":3,"nullable":true,"note":""},{"field":"TR-BIN-HALF","name":"tr_bin_half","type":"SMALLINT","offset":42,"bytes":2,"nullable":true,"note":""},{"field":"TR-BIN-FULL","name":"tr_bin_full","type":"INTEGER","offset":44,"bytes":4,"nullable":true,"note":""},{"field":"TR-BIN-DOUBLE","name":"tr_bin_double","type":"BIGINT","offset":48,"bytes":8,"nullable":true,"note":""},{"field":"TR-UNSIGNED-BIN","name":"tr_unsigned_bin","type":"SMALLINT","offset":56,"bytes":2,"nullable":true,"note":""},{"field":"TR-FLOAT-SHORT","name":"tr_float_short","type":"REAL","offset":58,"bytes":4,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-FLOAT-LONG","name":"tr_float_long","type":"DOUBLE PRECISION","offset":62,"bytes":8,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-ENTRY-COUNT","name":"tr_entry_count","type":"SMALLINT","offset":90,"bytes":2,"nullable":true,"note":""},{"field":"TR-DISCRIMINATOR","name":"tr_discriminator","type":"VARCHAR(1)","offset":160,"bytes":1,"nullable":true,"note":""}],"parent":null,"occurs_of":null,"occurs_max":1,"depends_on":null},{"name":"torture_record_tr_quarters","kind":"occurs","columns":[{"field":"TR-Q-AMT","name":"tr_q_amt","type":"NUMERIC(7,2)","offset":70,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag","type":"VARCHAR(1)","offset":74,"bytes":1,"nullable":true,"note":""}],"parent":"torture_record","occurs_of":"TR-QUARTERS","occurs_max":4,"depends_on":null},{"name":"torture_record_tr_entries","kind":"occurs","columns":[{"field":"TR-E-CODE","name":"tr_e_code","type":"VARCHAR(3)","offset":92,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value","type":"NUMERIC(9,2)","offset":95,"bytes":5,"nullable":true,"note":""}],"parent":"torture_record","occurs_of":"TR-ENTRIES","occurs_max":6,"depends_on":"TR-ENTRY-COUNT"}]},"rendered":{"refused":"2 decision(s) in this plan are still open. Resolve them in the plan file, then generate.\n\n  [REDEFINES_BRANCH] redefines:TR-PAYLOAD\n    TR-PAYLOAD is redefined by TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY. The same bytes mean different things per record and nothing in the copybook says which. Name the field that decides, and what its values mean.\n    options: TR-PAYLOAD, TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY, raw_bytes\n    set \"resolution\" to something shaped like: {\"discriminator\": \"<FIELD-NAME>\", \"map\": {\"<value>\": \"TR-PAYLOAD-PERSON\"}}\n\n  [PRIMARY_KEY] primary_key\n    child tables need a key back to the parent row. Name the field (or fields) that identify a record uniquely.\n    options: TR-REGION, TR-ACCOUNT, TR-SIGNED-DISPLAY, TR-SIGN-LEADING, TR-SIGN-TRAIL-SEP, TR-PACKED, TR-PACKED-ODD, TR-BIN-HALF, TR-BIN-FULL, TR-BIN-DOUBLE, TR-UNSIGNED-BIN, TR-FLOAT-SHORT, TR-FLOAT-LONG, TR-ENTRY-COUNT, TR-DISCRIMINATOR\n    set \"resolution\" to something shaped like: {\"primary_key\": [\"<FIELD-NAME>\"]}"},"record_bytes":161},"torture_child":{"copybook":"TORTURE.cpy","plan":{"overpunch_plan":1,"source":{"copybook":"demo/TORTURE.cpy","record_bytes":161,"encoding":"cp037","record_format":"fixed"},"target":{"dialect":"postgresql","table":"torture_record"},"policies":{"identifier_style":"snake_case","trim_trailing_spaces":true,"null_when":["low_values"],"float_encoding":"ibm_hex","occurs":"child_table"},"unresolved":[{"id":"redefines:TR-PAYLOAD","kind":"REDEFINES_BRANCH","question":"TR-PAYLOAD is redefined by TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY. The same bytes mean different things per record and nothing in the copybook says which. Name the field that decides, and what its values mean.","options":["TR-PAYLOAD","TR-PAYLOAD-PERSON","TR-PAYLOAD-POLICY","raw_bytes"],"resolve_with":{"discriminator":"<FIELD-NAME>","map":{"<value>":"TR-PAYLOAD-PERSON"}},"resolution":{"discriminator":"TR-DISCRIMINATOR","map":{"P":"TR-PAYLOAD-PERSON","L":"TR-PAYLOAD-POLICY"}}},{"id":"primary_key","kind":"PRIMARY_KEY","question":"child tables need a key back to the parent row. Name the field (or fields) that identify a record uniquely.","options":["TR-REGION","TR-ACCOUNT","TR-SIGNED-DISPLAY","TR-SIGN-LEADING","TR-SIGN-TRAIL-SEP","TR-PACKED","TR-PACKED-ODD","TR-BIN-HALF","TR-BIN-FULL","TR-BIN-DOUBLE","TR-UNSIGNED-BIN","TR-FLOAT-SHORT","TR-FLOAT-LONG","TR-ENTRY-COUNT","TR-DISCRIMINATOR"],"resolve_with":{"primary_key":["<FIELD-NAME>"]},"resolution":{"primary_key":["TR-ACCOUNT"]}}],"tables":[{"name":"torture_record","kind":"root","columns":[{"field":"TR-REGION","name":"tr_region","type":"VARCHAR(2)","offset":0,"bytes":2,"nullable":true,"note":""},{"field":"TR-ACCOUNT","name":"tr_account","type":"BIGINT","offset":2,"bytes":10,"nullable":true,"note":""},{"field":"TR-SIGNED-DISPLAY","name":"tr_signed_display","type":"NUMERIC(9,2)","offset":12,"bytes":9,"nullable":true,"note":""},{"field":"TR-SIGN-LEADING","name":"tr_sign_leading","type":"INTEGER","offset":21,"bytes":6,"nullable":true,"note":""},{"field":"TR-SIGN-TRAIL-SEP","name":"tr_sign_trail_sep","type":"INTEGER","offset":27,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED","name":"tr_packed","type":"NUMERIC(11,2)","offset":33,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED-ODD","name":"tr_packed_odd","type":"SMALLINT","offset":39,"bytes":3,"nullable":true,"note":""},{"field":"TR-BIN-HALF","name":"tr_bin_half","type":"SMALLINT","offset":42,"bytes":2,"nullable":true,"note":""},{"field":"TR-BIN-FULL","name":"tr_bin_full","type":"INTEGER","offset":44,"bytes":4,"nullable":true,"note":""},{"field":"TR-BIN-DOUBLE","name":"tr_bin_double","type":"BIGINT","offset":48,"bytes":8,"nullable":true,"note":""},{"field":"TR-UNSIGNED-BIN","name":"tr_unsigned_bin","type":"SMALLINT","offset":56,"bytes":2,"nullable":true,"note":""},{"field":"TR-FLOAT-SHORT","name":"tr_float_short","type":"REAL","offset":58,"bytes":4,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-FLOAT-LONG","name":"tr_float_long","type":"DOUBLE PRECISION","offset":62,"bytes":8,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-ENTRY-COUNT","name":"tr_entry_count","type":"SMALLINT","offset":90,"bytes":2,"nullable":true,"note":""},{"field":"TR-DISCRIMINATOR","name":"tr_discriminator","type":"VARCHAR(1)","offset":160,"bytes":1,"nullable":true,"note":""}],"parent":null,"occurs_of":null,"occurs_max":1,"depends_on":null},{"name":"torture_record_tr_quarters","kind":"occurs","columns":[{"field":"TR-Q-AMT","name":"tr_q_amt","type":"NUMERIC(7,2)","offset":70,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag","type":"VARCHAR(1)","offset":74,"bytes":1,"nullable":true,"note":""}],"parent":"torture_record","occurs_of":"TR-QUARTERS","occurs_max":4,"depends_on":null},{"name":"torture_record_tr_entries","kind":"occurs","columns":[{"field":"TR-E-CODE","name":"tr_e_code","type":"VARCHAR(3)","offset":92,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value","type":"NUMERIC(9,2)","offset":95,"bytes":5,"nullable":true,"note":""}],"parent":"torture_record","occurs_of":"TR-ENTRIES","occurs_max":6,"depends_on":"TR-ENTRY-COUNT"}]},"rendered":{"ddl":"-- generated by overpunch from demo/TORTURE.cpy\n-- 161-byte fixed records, cp037\n-- policies: {\"identifier_style\": \"snake_case\", \"trim_trailing_spaces\": true, \"null_when\": [\"low_values\"], \"float_encoding\": \"ibm_hex\", \"occurs\": \"child_table\"}\n\nCREATE TABLE torture_record (\n    tr_region                 VARCHAR(2),\n    tr_account                BIGINT NOT NULL,\n    tr_signed_display         NUMERIC(9,2),\n    tr_sign_leading           INTEGER,\n    tr_sign_trail_sep         INTEGER,\n    tr_packed                 NUMERIC(11,2),\n    tr_packed_odd             SMALLINT,\n    tr_bin_half               SMALLINT,\n    tr_bin_full               INTEGER,\n    tr_bin_double             BIGINT,\n    tr_unsigned_bin           SMALLINT,\n    tr_float_short            REAL,  -- float_encoding=ibm_hex\n    tr_float_long             DOUBLE PRECISION,  -- float_encoding=ibm_hex\n    tr_entry_count            SMALLINT,\n    tr_discriminator          VARCHAR(1),\n    PRIMARY KEY (tr_account)\n);\n\nCREATE TABLE torture_record_tr_quarters (\n    parent_id                 BIGINT NOT NULL,\n    occurrence                SMALLINT NOT NULL,\n    tr_q_amt                  NUMERIC(7,2),\n    tr_q_flag                 VARCHAR(1),\n    PRIMARY KEY (parent_id, occurrence)\n);\n-- TR-QUARTERS OCCURS up to 4\n\nCREATE TABLE torture_record_tr_entries (\n    parent_id                 BIGINT NOT NULL,\n    occurrence                SMALLINT NOT NULL,\n    tr_e_code                 VARCHAR(3),\n    tr_e_value                NUMERIC(9,2),\n    PRIMARY KEY (parent_id, occurrence)\n);\n-- TR-ENTRIES OCCURS up to 6 DEPENDING ON TR-ENTRY-COUNT\n","jsonschema":"{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"torture_record\",\n  \"description\": \"generated by overpunch from demo/TORTURE.cpy\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"tr_region\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-REGION\",\n      \"x-offset\": 0,\n      \"x-bytes\": 2\n    },\n    \"tr_account\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-ACCOUNT\",\n      \"x-offset\": 2,\n      \"x-bytes\": 10\n    },\n    \"tr_signed_display\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-SIGNED-DISPLAY\",\n      \"x-offset\": 12,\n      \"x-bytes\": 9\n    },\n    \"tr_sign_leading\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-SIGN-LEADING\",\n      \"x-offset\": 21,\n      \"x-bytes\": 6\n    },\n    \"tr_sign_trail_sep\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-SIGN-TRAIL-SEP\",\n      \"x-offset\": 27,\n      \"x-bytes\": 6\n    },\n    \"tr_packed\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-PACKED\",\n      \"x-offset\": 33,\n      \"x-bytes\": 6\n    },\n    \"tr_packed_odd\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-PACKED-ODD\",\n      \"x-offset\": 39,\n      \"x-bytes\": 3\n    },\n    \"tr_bin_half\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-HALF\",\n      \"x-offset\": 42,\n      \"x-bytes\": 2\n    },\n    \"tr_bin_full\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-FULL\",\n      \"x-offset\": 44,\n      \"x-bytes\": 4\n    },\n    \"tr_bin_double\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-DOUBLE\",\n      \"x-offset\": 48,\n      \"x-bytes\": 8\n    },\n    \"tr_unsigned_bin\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-UNSIGNED-BIN\",\n      \"x-offset\": 56,\n      \"x-bytes\": 2\n    },\n    \"tr_float_short\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-FLOAT-SHORT\",\n      \"x-offset\": 58,\n      \"x-bytes\": 4\n    },\n    \"tr_float_long\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-FLOAT-LONG\",\n      \"x-offset\": 62,\n      \"x-bytes\": 8\n    },\n    \"tr_entry_count\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-ENTRY-COUNT\",\n      \"x-offset\": 90,\n      \"x-bytes\": 2\n    },\n    \"tr_discriminator\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-DISCRIMINATOR\",\n      \"x-offset\": 160,\n      \"x-bytes\": 1\n    },\n    \"tr_quarters\": {\n      \"type\": \"array\",\n      \"maxItems\": 4,\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"tr_q_amt\": {\n            \"type\": \"number\"\n          },\n          \"tr_q_flag\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    },\n    \"tr_entries\": {\n      \"type\": \"array\",\n      \"maxItems\": 6,\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"tr_e_code\": {\n            \"type\": \"string\"\n          },\n          \"tr_e_value\": {\n            \"type\": \"number\"\n          }\n        }\n      }\n    }\n  }\n}","loader":"#!/bin/sh\n# generated by overpunch - decode, then load.\nset -eu\n\noverpunch decode demo/TORTURE.cpy \"$1\" \\\n    --encoding cp037 -o records.csv\n\npsql \"$DATABASE_URL\" -c \"\\\\copy torture_record (tr_region, tr_account, tr_signed_display, tr_sign_leading, tr_sign_trail_sep, tr_packed, tr_packed_odd, tr_bin_half, tr_bin_full, tr_bin_double, tr_unsigned_bin, tr_float_short, tr_float_long, tr_entry_count, tr_discriminator) FROM 'records.csv' WITH (FORMAT csv, HEADER true)\"\n"},"record_bytes":161},"torture_flat":{"copybook":"TORTURE.cpy","plan":{"overpunch_plan":1,"source":{"copybook":"demo/TORTURE.cpy","record_bytes":161,"encoding":"cp037","record_format":"fixed"},"target":{"dialect":"postgresql","table":"torture_record"},"policies":{"identifier_style":"snake_case","trim_trailing_spaces":true,"null_when":["low_values"],"float_encoding":"ibm_hex","occurs":"flatten"},"unresolved":[{"id":"redefines:TR-PAYLOAD","kind":"REDEFINES_BRANCH","question":"TR-PAYLOAD is redefined by TR-PAYLOAD-PERSON, TR-PAYLOAD-POLICY. The same bytes mean different things per record and nothing in the copybook says which. Name the field that decides, and what its values mean.","options":["TR-PAYLOAD","TR-PAYLOAD-PERSON","TR-PAYLOAD-POLICY","raw_bytes"],"resolve_with":{"discriminator":"<FIELD-NAME>","map":{"<value>":"TR-PAYLOAD-PERSON"}},"resolution":{"discriminator":"TR-DISCRIMINATOR","map":{"P":"TR-PAYLOAD-PERSON","L":"TR-PAYLOAD-POLICY"}}}],"tables":[{"name":"torture_record","kind":"root","columns":[{"field":"TR-REGION","name":"tr_region","type":"VARCHAR(2)","offset":0,"bytes":2,"nullable":true,"note":""},{"field":"TR-ACCOUNT","name":"tr_account","type":"BIGINT","offset":2,"bytes":10,"nullable":true,"note":""},{"field":"TR-SIGNED-DISPLAY","name":"tr_signed_display","type":"NUMERIC(9,2)","offset":12,"bytes":9,"nullable":true,"note":""},{"field":"TR-SIGN-LEADING","name":"tr_sign_leading","type":"INTEGER","offset":21,"bytes":6,"nullable":true,"note":""},{"field":"TR-SIGN-TRAIL-SEP","name":"tr_sign_trail_sep","type":"INTEGER","offset":27,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED","name":"tr_packed","type":"NUMERIC(11,2)","offset":33,"bytes":6,"nullable":true,"note":""},{"field":"TR-PACKED-ODD","name":"tr_packed_odd","type":"SMALLINT","offset":39,"bytes":3,"nullable":true,"note":""},{"field":"TR-BIN-HALF","name":"tr_bin_half","type":"SMALLINT","offset":42,"bytes":2,"nullable":true,"note":""},{"field":"TR-BIN-FULL","name":"tr_bin_full","type":"INTEGER","offset":44,"bytes":4,"nullable":true,"note":""},{"field":"TR-BIN-DOUBLE","name":"tr_bin_double","type":"BIGINT","offset":48,"bytes":8,"nullable":true,"note":""},{"field":"TR-UNSIGNED-BIN","name":"tr_unsigned_bin","type":"SMALLINT","offset":56,"bytes":2,"nullable":true,"note":""},{"field":"TR-FLOAT-SHORT","name":"tr_float_short","type":"REAL","offset":58,"bytes":4,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-FLOAT-LONG","name":"tr_float_long","type":"DOUBLE PRECISION","offset":62,"bytes":8,"nullable":true,"note":"float_encoding=ibm_hex"},{"field":"TR-Q-AMT","name":"tr_q_amt_1","type":"NUMERIC(7,2)","offset":70,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-AMT","name":"tr_q_amt_2","type":"NUMERIC(7,2)","offset":75,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-AMT","name":"tr_q_amt_3","type":"NUMERIC(7,2)","offset":80,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-AMT","name":"tr_q_amt_4","type":"NUMERIC(7,2)","offset":85,"bytes":4,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag_1","type":"VARCHAR(1)","offset":74,"bytes":1,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag_2","type":"VARCHAR(1)","offset":79,"bytes":1,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag_3","type":"VARCHAR(1)","offset":84,"bytes":1,"nullable":true,"note":""},{"field":"TR-Q-FLAG","name":"tr_q_flag_4","type":"VARCHAR(1)","offset":89,"bytes":1,"nullable":true,"note":""},{"field":"TR-ENTRY-COUNT","name":"tr_entry_count","type":"SMALLINT","offset":90,"bytes":2,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_1","type":"VARCHAR(3)","offset":92,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_2","type":"VARCHAR(3)","offset":100,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_3","type":"VARCHAR(3)","offset":108,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_4","type":"VARCHAR(3)","offset":116,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_5","type":"VARCHAR(3)","offset":124,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-CODE","name":"tr_e_code_6","type":"VARCHAR(3)","offset":132,"bytes":3,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_1","type":"NUMERIC(9,2)","offset":95,"bytes":5,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_2","type":"NUMERIC(9,2)","offset":103,"bytes":5,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_3","type":"NUMERIC(9,2)","offset":111,"bytes":5,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_4","type":"NUMERIC(9,2)","offset":119,"bytes":5,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_5","type":"NUMERIC(9,2)","offset":127,"bytes":5,"nullable":true,"note":""},{"field":"TR-E-VALUE","name":"tr_e_value_6","type":"NUMERIC(9,2)","offset":135,"bytes":5,"nullable":true,"note":""},{"field":"TR-DISCRIMINATOR","name":"tr_discriminator","type":"VARCHAR(1)","offset":160,"bytes":1,"nullable":true,"note":""}],"parent":null,"occurs_of":null,"occurs_max":1,"depends_on":null}]},"rendered":{"ddl":"-- generated by overpunch from demo/TORTURE.cpy\n-- 161-byte fixed records, cp037\n-- policies: {\"identifier_style\": \"snake_case\", \"trim_trailing_spaces\": true, \"null_when\": [\"low_values\"], \"float_encoding\": \"ibm_hex\", \"occurs\": \"flatten\"}\n\nCREATE TABLE torture_record (\n    tr_region                 VARCHAR(2),\n    tr_account                BIGINT,\n    tr_signed_display         NUMERIC(9,2),\n    tr_sign_leading           INTEGER,\n    tr_sign_trail_sep         INTEGER,\n    tr_packed                 NUMERIC(11,2),\n    tr_packed_odd             SMALLINT,\n    tr_bin_half               SMALLINT,\n    tr_bin_full               INTEGER,\n    tr_bin_double             BIGINT,\n    tr_unsigned_bin           SMALLINT,\n    tr_float_short            REAL,  -- float_encoding=ibm_hex\n    tr_float_long             DOUBLE PRECISION,  -- float_encoding=ibm_hex\n    tr_q_amt_1                NUMERIC(7,2),\n    tr_q_amt_2                NUMERIC(7,2),\n    tr_q_amt_3                NUMERIC(7,2),\n    tr_q_amt_4                NUMERIC(7,2),\n    tr_q_flag_1               VARCHAR(1),\n    tr_q_flag_2               VARCHAR(1),\n    tr_q_flag_3               VARCHAR(1),\n    tr_q_flag_4               VARCHAR(1),\n    tr_entry_count            SMALLINT,\n    tr_e_code_1               VARCHAR(3),\n    tr_e_code_2               VARCHAR(3),\n    tr_e_code_3               VARCHAR(3),\n    tr_e_code_4               VARCHAR(3),\n    tr_e_code_5               VARCHAR(3),\n    tr_e_code_6               VARCHAR(3),\n    tr_e_value_1              NUMERIC(9,2),\n    tr_e_value_2              NUMERIC(9,2),\n    tr_e_value_3              NUMERIC(9,2),\n    tr_e_value_4              NUMERIC(9,2),\n    tr_e_value_5              NUMERIC(9,2),\n    tr_e_value_6              NUMERIC(9,2),\n    tr_discriminator          VARCHAR(1)\n);\n","jsonschema":"{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"torture_record\",\n  \"description\": \"generated by overpunch from demo/TORTURE.cpy\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"tr_region\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-REGION\",\n      \"x-offset\": 0,\n      \"x-bytes\": 2\n    },\n    \"tr_account\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-ACCOUNT\",\n      \"x-offset\": 2,\n      \"x-bytes\": 10\n    },\n    \"tr_signed_display\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-SIGNED-DISPLAY\",\n      \"x-offset\": 12,\n      \"x-bytes\": 9\n    },\n    \"tr_sign_leading\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-SIGN-LEADING\",\n      \"x-offset\": 21,\n      \"x-bytes\": 6\n    },\n    \"tr_sign_trail_sep\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-SIGN-TRAIL-SEP\",\n      \"x-offset\": 27,\n      \"x-bytes\": 6\n    },\n    \"tr_packed\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-PACKED\",\n      \"x-offset\": 33,\n      \"x-bytes\": 6\n    },\n    \"tr_packed_odd\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-PACKED-ODD\",\n      \"x-offset\": 39,\n      \"x-bytes\": 3\n    },\n    \"tr_bin_half\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-HALF\",\n      \"x-offset\": 42,\n      \"x-bytes\": 2\n    },\n    \"tr_bin_full\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-FULL\",\n      \"x-offset\": 44,\n      \"x-bytes\": 4\n    },\n    \"tr_bin_double\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-BIN-DOUBLE\",\n      \"x-offset\": 48,\n      \"x-bytes\": 8\n    },\n    \"tr_unsigned_bin\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-UNSIGNED-BIN\",\n      \"x-offset\": 56,\n      \"x-bytes\": 2\n    },\n    \"tr_float_short\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-FLOAT-SHORT\",\n      \"x-offset\": 58,\n      \"x-bytes\": 4\n    },\n    \"tr_float_long\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-FLOAT-LONG\",\n      \"x-offset\": 62,\n      \"x-bytes\": 8\n    },\n    \"tr_q_amt_1\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-Q-AMT\",\n      \"x-offset\": 70,\n      \"x-bytes\": 4\n    },\n    \"tr_q_amt_2\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-Q-AMT\",\n      \"x-offset\": 75,\n      \"x-bytes\": 4\n    },\n    \"tr_q_amt_3\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-Q-AMT\",\n      \"x-offset\": 80,\n      \"x-bytes\": 4\n    },\n    \"tr_q_amt_4\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-Q-AMT\",\n      \"x-offset\": 85,\n      \"x-bytes\": 4\n    },\n    \"tr_q_flag_1\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-Q-FLAG\",\n      \"x-offset\": 74,\n      \"x-bytes\": 1\n    },\n    \"tr_q_flag_2\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-Q-FLAG\",\n      \"x-offset\": 79,\n      \"x-bytes\": 1\n    },\n    \"tr_q_flag_3\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-Q-FLAG\",\n      \"x-offset\": 84,\n      \"x-bytes\": 1\n    },\n    \"tr_q_flag_4\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-Q-FLAG\",\n      \"x-offset\": 89,\n      \"x-bytes\": 1\n    },\n    \"tr_entry_count\": {\n      \"type\": \"integer\",\n      \"x-cobol-field\": \"TR-ENTRY-COUNT\",\n      \"x-offset\": 90,\n      \"x-bytes\": 2\n    },\n    \"tr_e_code_1\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 92,\n      \"x-bytes\": 3\n    },\n    \"tr_e_code_2\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 100,\n      \"x-bytes\": 3\n    },\n    \"tr_e_code_3\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 108,\n      \"x-bytes\": 3\n    },\n    \"tr_e_code_4\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 116,\n      \"x-bytes\": 3\n    },\n    \"tr_e_code_5\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 124,\n      \"x-bytes\": 3\n    },\n    \"tr_e_code_6\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-E-CODE\",\n      \"x-offset\": 132,\n      \"x-bytes\": 3\n    },\n    \"tr_e_value_1\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 95,\n      \"x-bytes\": 5\n    },\n    \"tr_e_value_2\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 103,\n      \"x-bytes\": 5\n    },\n    \"tr_e_value_3\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 111,\n      \"x-bytes\": 5\n    },\n    \"tr_e_value_4\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 119,\n      \"x-bytes\": 5\n    },\n    \"tr_e_value_5\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 127,\n      \"x-bytes\": 5\n    },\n    \"tr_e_value_6\": {\n      \"type\": \"number\",\n      \"x-cobol-field\": \"TR-E-VALUE\",\n      \"x-offset\": 135,\n      \"x-bytes\": 5\n    },\n    \"tr_discriminator\": {\n      \"type\": \"string\",\n      \"x-cobol-field\": \"TR-DISCRIMINATOR\",\n      \"x-offset\": 160,\n      \"x-bytes\": 1\n    }\n  }\n}","loader":"#!/bin/sh\n# generated by overpunch - decode, then load.\nset -eu\n\noverpunch decode demo/TORTURE.cpy \"$1\" \\\n    --encoding cp037 -o records.csv\n\npsql \"$DATABASE_URL\" -c \"\\\\copy torture_record (tr_region, tr_account, tr_signed_display, tr_sign_leading, tr_sign_trail_sep, tr_packed, tr_packed_odd, tr_bin_half, tr_bin_full, tr_bin_double, tr_unsigned_bin, tr_float_short, tr_float_long, tr_q_amt_1, tr_q_amt_2, tr_q_amt_3, tr_q_amt_4, tr_q_flag_1, tr_q_flag_2, tr_q_flag_3, tr_q_flag_4, tr_entry_count, tr_e_code_1, tr_e_code_2, tr_e_code_3, tr_e_code_4, tr_e_code_5, tr_e_code_6, tr_e_value_1, tr_e_value_2, tr_e_value_3, tr_e_value_4, tr_e_value_5, tr_e_value_6, tr_discriminator) FROM 'records.csv' WITH (FORMAT csv, HEADER true)\"\n"},"record_bytes":161}}}</script>
+<script>
+(function(){
+"use strict";
+var D=JSON.parse(document.getElementById("payload").textContent);
+var CP=D.cp037,RLEN=D.record_len,F=D.fields;
+var POS="{ABCDEFGHI",NEG="}JKLMNOPQR";
+function b64(s){var b=atob(s),a=new Uint8Array(b.length);
+  for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+var RECS=D.records.map(b64);
+function txt(b){var o="";for(var i=0;i<b.length;i++)o+=CP[b[i]];return o;}
+function splitSign(t){if(!t.length)return{d:"",s:1};
+  var l=t[t.length-1],i;
+  if(l==="-"||l==="+")return{d:t.slice(0,-1),s:l==="-"?-1:1};
+  i=NEG.indexOf(l);if(i>=0)return{d:t.slice(0,-1)+i,s:-1};
+  i=POS.indexOf(l);if(i>=0)return{d:t.slice(0,-1)+i,s:1};
+  return{d:t,s:1};}
+function readField(b,f){
+  var t=txt(b.slice(f.offset,f.offset+f.len));
+  if(!f.numeric)return{text:t};
+  var sp=splitSign(t),dg=(sp.d.replace(/[^0-9]/g,"")||"0"),div=Math.pow(10,f.scale||0);
+  return{text:t,correct:(f.signed?sp.s:1)*parseInt(dg,10)/div,
+         nosign:parseInt(dg,10)/div,digits:parseInt(dg,10),
+         sign:sp.s,signChar:t[t.length-1]};}
+function money(n){return n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function plain(n){return n.toLocaleString("en-US");}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+document.getElementById("modelname").textContent=D.model;
+
+/* severity per field, for the copybook trap tags */
+var worst={};
+D.findings.forEach(function(f){ if(f.severity==="critical") worst[f.field]="trap"; });
+
+/* ---- copybook ---- */
+var cb=document.getElementById("cbook");
+D.copybook.forEach(function(l){
+  var row=el("div","cbl"+(l.comment?" cmt":"")+(l.field?" pick":""));
+  row.appendChild(el("span","ln",String(l.n)));
+  row.appendChild(el("span","tx",l.text.replace(/\s+$/,"")));
+  if(l.field&&worst[l.field]) row.appendChild(el("span","tag","trap"));
+  if(l.field){
+    row.setAttribute("data-field",l.field);
+    row.onclick=function(){
+      var i=F.findIndex(function(f){return f.name===l.field;});
+      if(i>=0){selIdx=i;render();
+        document.getElementById("bytes").scrollIntoView({behavior:"smooth",block:"center"});}
+    };
+  }
+  cb.appendChild(row);
+});
+
+/* ---- raw dump ---- */
+var enc="cp037";
+function printable(ch){return ch>=" "&&ch<="~";}
+function renderDump(){
+  var d=document.getElementById("dump");d.textContent="";
+  var shown=Math.min(10,RECS.length);
+  for(var r=0;r<shown;r++){
+    d.appendChild(el("div","drec","record "+(r+1)+"  ·  bytes "+(r*RLEN)+"–"+(r*RLEN+RLEN-1)));
+    var b=RECS[r];
+    for(var o=0;o<RLEN;o+=24){
+      var row=el("div","drow");
+      row.appendChild(el("span","off",(r*RLEN+o).toString(16).toUpperCase().padStart(5,"0")));
+      var hx="",gu="";
+      for(var i=o;i<Math.min(o+24,RLEN);i++){
+        hx+=b[i].toString(16).toUpperCase().padStart(2,"0")+(i%4===3?" ":"");
+        var ch=enc==="cp037"?CP[b[i]]:String.fromCharCode(b[i]);
+        gu+=printable(ch)?ch:".";
+      }
+      row.appendChild(el("span","hx",hx));
+      row.appendChild(el("span","gut"+(enc==="cp037"?"":" bad"),gu));
+      d.appendChild(row);
+    }
+  }
+}
+Array.prototype.forEach.call(document.querySelectorAll("[data-enc]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-enc]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    enc=b.getAttribute("data-enc");renderDump();};
+});
+
+/* ---- swing ---- */
+var T=D.totals;
+[["Correct","good",money(parseFloat(T.correct)),
+  plain(T.negative)+" of "+plain(T.records)+" records are credits"],
+ ["Sign ignored","bad",money(parseFloat(T.sign_ignored)),
+  "every credit silently becomes a charge"],
+ ["Digits only","warn",plain(parseFloat(T.digits_only)),
+  "sign and the implied decimal both dropped"]
+].forEach(function(r){
+  var t=el("div","tile "+r[1]);
+  t.appendChild(el("div","lab",r[0]));t.appendChild(el("div","val",r[2]));
+  t.appendChild(el("div","note",r[3]));
+  document.getElementById("swing").appendChild(t);});
+
+/* ---- inspector ---- */
+var recIdx=0,mode="correct";
+var selIdx=F.findIndex(function(f){return f.name==="BIL-ADJUSTMENT-AMT";});
+if(selIdx<0)selIdx=0;
+var ruler=document.getElementById("ruler");
+for(var c=0;c<24;c++)ruler.appendChild(el("span",null,String(c+1)));
+function fieldAt(o){for(var i=0;i<F.length;i++){if(o>=F[i].offset&&o<F[i].offset+F[i].len)return i;}return -1;}
+function render(){
+  var b=RECS[recIdx],sel=F[selIdx];
+  document.getElementById("recid").textContent="record "+(recIdx+1)+" of "+RECS.length;
+  Array.prototype.forEach.call(document.querySelectorAll(".cbl[data-field]"),function(r){
+    r.classList.toggle("sel",r.getAttribute("data-field")===sel.name);});
+  var g=document.getElementById("bytes");g.textContent="";
+  for(var i=0;i<RLEN;i++){
+    var fi=fieldAt(i),f=fi>=0?F[fi]:null,cell=el("div","by"+(fi%2===0?" f0":""));
+    if(f&&f.offset===i)cell.className+=" start";
+    if(fi===selIdx)cell.className+=" sel";
+    var ch=CP[b[i]],isLast=f&&f.numeric&&f.offset+f.len-1===i;
+    if(isLast&&(POS.indexOf(ch)>=0||NEG.indexOf(ch)>=0))cell.className+=" sign";
+    cell.appendChild(el("span","h",b[i].toString(16).toUpperCase().padStart(2,"0")));
+    cell.appendChild(el("span","c",ch===" "?"·":ch));
+    cell.title=(f?f.name+" "+f.pic:"—")+"  offset "+i;
+    (function(k){cell.onclick=function(){var x=fieldAt(k);if(x>=0){selIdx=x;render();}};})(i);
+    g.appendChild(cell);
+  }
+  var v=readField(b,sel),kv=document.getElementById("fieldkv");kv.textContent="";
+  [["field",sel.name],["picture",sel.pic],["usage",sel.usage],
+   ["offset",sel.offset+" – "+(sel.offset+sel.len-1)],["bytes",String(sel.len)],
+   ["raw",JSON.stringify(v.text)]].forEach(function(p){
+    kv.appendChild(el("dt",null,p[0]));kv.appendChild(el("dd",null,p[1]));});
+  if(sel.numeric){
+    kv.appendChild(el("dt",null,"sign byte"));
+    var sc=v.signChar,has=sc!==undefined&&(POS.indexOf(sc)>=0||NEG.indexOf(sc)>=0);
+    kv.appendChild(el("dd",null,has?JSON.stringify(sc)+"  →  "+(v.sign<0?"negative":"positive"):"none"));
+  }
+  var rd=document.getElementById("reads");rd.textContent="";
+  if(!sel.numeric){
+    var r0=el("div","read");
+    r0.appendChild(el("span","how","character field — nothing to misread"));
+    r0.appendChild(el("span","num",JSON.stringify(v.text)));rd.appendChild(r0);
+  }else{
+    var sum={correct:0,nosign:0,digits:0};
+    RECS.forEach(function(x){var y=readField(x,sel);
+      sum.correct+=y.correct;sum.nosign+=y.nosign;sum.digits+=y.digits;});
+    [["Correct","correct",money(v.correct),money(sum.correct)],
+     ["Sign ignored","nosign",money(v.nosign),money(sum.nosign)],
+     ["Digits only","digits",plain(v.digits),plain(sum.digits)]
+    ].forEach(function(r){
+      var cls="read"+(r[1]==="correct"?" is-right":(r[1]===mode&&mode!=="correct"?" is-wrong":""));
+      var d=el("div",cls),L=el("span","how");
+      L.appendChild(document.createTextNode(r[0]));L.appendChild(el("br"));
+      var s=el("span");s.style.color="var(--ink-3)";s.style.fontSize="11.5px";
+      s.textContent="sum of these 60: "+r[3];L.appendChild(s);
+      d.appendChild(L);d.appendChild(el("span","num",r[2]));rd.appendChild(d);});
+  }
+}
+document.getElementById("prev").onclick=function(){recIdx=(recIdx-1+RECS.length)%RECS.length;render();};
+document.getElementById("next").onclick=function(){recIdx=(recIdx+1)%RECS.length;render();};
+document.getElementById("findneg").onclick=function(){
+  var sel=F[selIdx];
+  for(var k=1;k<=RECS.length;k++){var j=(recIdx+k)%RECS.length;
+    if(sel.numeric&&readField(RECS[j],sel).sign<0){recIdx=j;break;}}
+  render();};
+Array.prototype.forEach.call(document.querySelectorAll("[data-mode]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-mode]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    mode=b.getAttribute("data-mode");render();};});
+
+/* ---- findings ---- */
+var fw=document.getElementById("findings");
+D.findings.forEach(function(f){
+  var d=el("div","find "+f.severity),h=el("div","fhead");
+  h.appendChild(el("span","chip "+f.severity,f.severity));
+  h.appendChild(el("span","fcode",f.code));
+  h.appendChild(el("span","ffield",f.field));
+  d.appendChild(h);d.appendChild(el("p","fclaim",f.claim));
+  var ev=Object.keys(f.evidence).map(function(k){return k+"="+f.evidence[k];}).join("   ");
+  if(ev)d.appendChild(el("div","fev",ev+"   ·   over "+plain(f.records)+" records"));
+  if(f.impact)d.appendChild(el("div","fimp",f.impact));
+  fw.appendChild(d);});
+
+/* ---- verdicts ---- */
+var tally={};D.verdicts.forEach(function(v){tally[v.verdict]=(tally[v.verdict]||0)+1;});
+var order=["CONFIRMED","INERT","REFUTED","UNTESTABLE"];
+var tone={CONFIRMED:"good",INERT:"",REFUTED:"bad",UNTESTABLE:"warn"};
+var note={CONFIRMED:"proposed, then proved against the bytes",
+  INERT:"read correctly, but changes no value here",
+  REFUTED:"the model was wrong and the file said so",
+  UNTESTABLE:"outside the vocabulary — printed as an opinion"};
+var vt=document.getElementById("verdicttally");
+order.forEach(function(k){if(!tally[k])return;
+  var t=el("div","tile "+tone[k]);
+  t.appendChild(el("div","lab",k));t.appendChild(el("div","val",String(tally[k])));
+  t.appendChild(el("div","note",note[k]));vt.appendChild(t);});
+var vw=document.getElementById("verdicts");
+D.verdicts.slice().sort(function(a,b){return order.indexOf(a.verdict)-order.indexOf(b.verdict);})
+.forEach(function(v){
+  var d=el("div","adj"),h=el("div","ahead");
+  h.appendChild(el("span","chip "+v.verdict.toLowerCase(),v.verdict));
+  h.appendChild(el("span","fcode",v.kind));
+  h.appendChild(el("span","ffield",v.field));
+  d.appendChild(h);
+  var s1=el("div","side said");s1.appendChild(el("span","slab","the model said"));
+  s1.appendChild(document.createTextNode(v.rationale||"—"));d.appendChild(s1);
+  var s2=el("div","side meas");s2.appendChild(el("span","slab","measured"));
+  s2.appendChild(document.createTextNode(
+    Object.keys(v.evidence).map(function(k){return k+"="+v.evidence[k];}).join("   ")||"—"));
+  d.appendChild(s2);vw.appendChild(d);});
+
+renderDump();render();
+
+/* ---- extraction plan ---- */
+(function(){
+var P=D.plans, which="utlbill", fmt="ddl", occurs="child_table";
+var answers={REDEFINES_BRANCH:"",PRIMARY_KEY:""};
+
+function activePlan(){
+  if(which==="utlbill") return P.utlbill;
+  var resolved=answers.REDEFINES_BRANCH&&answers.PRIMARY_KEY;
+  if(!resolved) return P.torture_open;
+  return occurs==="flatten"?P.torture_flat:P.torture_child;
+}
+function openList(p){
+  return p.plan.unresolved.filter(function(u){return !u.resolution;});
+}
+function renderDecisions(){
+  var host=document.getElementById("decisions"); host.textContent="";
+  var p=activePlan();
+  var meta=p.plan.tables.length+" table(s), "+
+    p.plan.tables.reduce(function(n,t){return n+t.columns.length;},0)+" column(s), "+
+    p.record_bytes+"-byte records";
+  document.getElementById("planmeta").textContent=meta;
+
+  if(which==="utlbill"){
+    var ok=el("div","dec answered");
+    ok.appendChild(el("div","dk","nothing to decide"));
+    ok.appendChild(el("div","dq","This layout has no REDEFINES and no repeating "+
+      "group, so the copybook settles every question on its own. Generation "+
+      "proceeds without asking."));
+    host.appendChild(ok); return;
+  }
+
+  P.torture_open.plan.unresolved.forEach(function(u){
+    var answered=!!answers[u.kind];
+    var d=el("div","dec"+(answered?" answered":""));
+    d.appendChild(el("div","dk",answered?"answered":u.kind.replace(/_/g," ")));
+    d.appendChild(el("div","dq",u.question));
+    var sel=document.createElement("select");
+    var none=document.createElement("option");
+    none.value=""; none.textContent="— not answered —"; sel.appendChild(none);
+    var opts=u.kind==="REDEFINES_BRANCH"
+      ? P.torture_open.plan.tables[0].columns.map(function(c){return c.field;})
+      : u.options;
+    opts.forEach(function(o){
+      var op=document.createElement("option"); op.value=o; op.textContent=o;
+      sel.appendChild(op);});
+    sel.value=answers[u.kind];
+    sel.onchange=function(){answers[u.kind]=sel.value;renderDecisions();renderOut();};
+    d.appendChild(sel);
+    host.appendChild(d);
+  });
+
+  var pol=el("div","policy");
+  pol.appendChild(el("span","dk","policy · OCCURS"));
+  var wrap=el("div","opts");
+  [["child_table","Child table"],["flatten","Flatten to columns"]].forEach(function(o){
+    var b=document.createElement("button");
+    b.textContent=o[1]; b.setAttribute("aria-pressed",occurs===o[0]?"true":"false");
+    b.onclick=function(){occurs=o[0];renderDecisions();renderOut();};
+    wrap.appendChild(b);});
+  pol.appendChild(wrap);
+  host.appendChild(pol);
+}
+function decodedRecords(n){
+  var rows=[];
+  for(var i=0;i<n;i++){
+    var o={},b=RECS[i];
+    F.forEach(function(f){
+      if(f.name==="FILLER")return;
+      if(f.usage!=="DISPLAY"&&f.numeric)return;   // packed/binary omitted here
+      var v=readField(b,f);
+      o[f.name.toLowerCase().replace(/-/g,"_")]=f.numeric
+        ? Number(v.correct.toFixed(f.scale||0)) : v.text.replace(/\s+$/,"");
+    });
+    rows.push(o);
+  }
+  return JSON.stringify(rows,null,2);
+}
+function renderOut(){
+  var p=activePlan(),pre=document.getElementById("out"),note=document.getElementById("outnote");
+  pre.className="out";
+  if(fmt==="records"){
+    if(which!=="utlbill"){
+      pre.textContent="No data file is embedded for this layout — the torture record "+
+        "exists to exercise the parser, not to carry rows.\n\nSwitch to Utility billing "+
+        "to see decoded records.";
+      note.textContent="";
+      return;
+    }
+    pre.textContent=decodedRecords(3);
+    note.textContent="Three records decoded in your browser from the embedded bytes. "+
+      "Packed and binary fields are omitted from this view only.";
+    return;
+  }
+  if(p.rendered.refused){
+    pre.className="out refused";
+    pre.textContent=p.rendered.refused;
+    note.textContent="Generation is blocked, not defaulted. Answer both questions on "+
+      "the left and the same command emits.";
+    return;
+  }
+  var text=p.rendered[fmt]||"";
+  if(fmt==="ddl"&&which==="torture"&&answers.PRIMARY_KEY){
+    var col=answers.PRIMARY_KEY.toLowerCase().replace(/-/g,"_");
+    text=text.replace(/PRIMARY KEY \(tr_account\)/,"PRIMARY KEY ("+col+")");
+  }
+  pre.textContent=text;
+  note.textContent=which==="torture"
+    ? "Recording the REDEFINES decision unblocks generation. Emitting the two "+
+      "branches as separate column sets is not implemented yet — the redefined "+
+      "bytes are left out rather than guessed at."
+    : "Emitted straight from the plan. No question needed asking.";
+}
+Array.prototype.forEach.call(document.querySelectorAll("[data-layout]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-layout]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    which=b.getAttribute("data-layout");renderDecisions();renderOut();};});
+Array.prototype.forEach.call(document.querySelectorAll("[data-fmt]"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fmt]"),function(o){
+      o.setAttribute("aria-pressed",o===b?"true":"false");});
+    fmt=b.getAttribute("data-fmt");renderOut();};});
+renderDecisions();renderOut();
+})();
+
+})();
+</script>
+
+</body>
+</html>
