@@ -237,9 +237,29 @@ def parse_records(text: str, source_name: str = "<copybook>") -> list[Layout]:
             if last_elementary is None:
                 continue
             name = rest[0] if rest else "FILLER"
-            vals = [t.strip("'\"") for t in rest[1:]
-                    if t.upper() not in {"VALUE", "VALUES", "IS", "ARE", "THRU", "THROUGH"}]
-            last_elementary.conditions.setdefault(name, []).extend(vals)
+            # THRU makes a RANGE, and flattening it to its endpoints is wrong
+            # twice over: it invents two discrete values that were never
+            # declared, and it makes `VALUE 1 THRU 5` collide with `VALUE 1` -
+            # which is idiomatic COBOL, a valid-set condition beside the
+            # specific ones, not an ambiguity.
+            words = [t for t in rest[1:]
+                     if t.upper() not in {"VALUE", "VALUES", "IS", "ARE"}]
+            vals, ranges, i = [], [], 0
+            while i < len(words):
+                if words[i].upper() in {"THRU", "THROUGH"}:
+                    if vals and i + 1 < len(words):
+                        ranges.append((vals.pop(), words[i + 1].strip("'\"")))
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+                vals.append(words[i].strip("'\""))
+                i += 1
+            if vals:
+                last_elementary.conditions.setdefault(name, []).extend(vals)
+            if ranges:
+                last_elementary.condition_ranges.setdefault(name, []).extend(ranges)
+                last_elementary.conditions.setdefault(name, [])
             continue
         if level == 66:
             continue

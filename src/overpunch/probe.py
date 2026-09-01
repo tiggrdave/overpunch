@@ -20,6 +20,43 @@ from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
 
+# Only these can be a sign. A low-value byte, a space, or any other junk in the
+# final position is an UNPOPULATED field, not a negative number - and counting
+# it as a sign reported every empty one-digit indicator as a copybook error.
+_SIGN_CHARS = set("{ABCDEFGHI}JKLMNOPQR+-")
+
+
+def _is_unset(text: str) -> bool:
+    """Low-values and spaces are how a mainframe says 'no value here'."""
+    return all(c in ("\x00", " ", "\xff") for c in text) if text else True
+
+
+class FieldStatsMap(dict):
+    """Keyed by field, addressable by name where the name is unambiguous.
+
+    Statistics have to be keyed per FIELD - FILLER occurs many times in one
+    record and merging them doubled every count. But callers naturally write
+    stats["W4-ACCOUNT"], so a bare name still resolves when exactly one field
+    has it, and says so plainly when several do.
+    """
+
+    def __missing__(self, name: str):
+        hits = [k for k in self if k.rsplit("@", 1)[0] == name]
+        if len(hits) == 1:
+            return self[hits[0]]
+        if not hits:
+            raise KeyError(name)
+        raise KeyError(
+            f"{name!r} occurs {len(hits)} times in this record; ask for one of "
+            f"{', '.join(sorted(hits))}")
+
+
+def field_key(fld: Field) -> str:
+    """Unique per field. Names are not: FILLER appears many times in one record,
+    and keying statistics by name merged them into a single entry with doubled
+    counts and meaningless percentages."""
+    return f"{fld.name}@{fld.offset}"
+
 
 @dataclass
 class Finding:
@@ -46,6 +83,7 @@ class FieldStats:
     name: str
     examined: int = 0
     blank: int = 0
+    unset: int = 0        # low-values or spaces: 'no value'
     all_zero: int = 0
     nondigit_last_byte: int = 0
     overpunch_negative: int = 0
@@ -242,6 +280,18 @@ def explain_mismatch(filesize: int, record_length: int,
     return notes
 
 
+def partial_view_note(layout) -> str | None:
+    """A copybook that redefines an area declared elsewhere covers only part."""
+    external = layout.external_redefines()
+    if not external:
+        return None
+    names = ", ".join(f"{a} REDEFINES {b}" for a, b in external)
+    return (f"this copybook is a VIEW - {names} - so it may describe only the "
+            f"leading {layout.described_length()} bytes of a longer record. If "
+            f"one of the lengths above is the real record, pass it with "
+            f"--record-bytes and the fields will be read within it.")
+
+
 class LayoutMismatch(Exception):
     def __init__(self, filesize: int, record_length: int, remainder: int):
         self.filesize, self.record_length, self.remainder = filesize, record_length, remainder
@@ -255,7 +305,7 @@ class LayoutMismatch(Exception):
 def scan(path: str, layout: Layout, encoding: str = "cp037",
          limit: int | None = None, recfm: str = "auto") -> dict[str, FieldStats]:
     fields = layout.elementary_fields()
-    stats = {f.name: FieldStats(name=f.name) for f in fields}
+    stats = FieldStatsMap((field_key(f), FieldStats(name=f.name)) for f in fields)
     rlen = layout.record_length()
 
     for n, rec in enumerate(iter_records(path, rlen, recfm=recfm)):
@@ -263,7 +313,7 @@ def scan(path: str, layout: Layout, encoding: str = "cp037",
             break
         for fld in fields:
             raw = rec[fld.offset:fld.offset + fld.total_size()]
-            _observe(stats[fld.name], fld, raw, encoding)
+            _observe(stats[field_key(fld)], fld, raw, encoding)
     return stats
 
 
@@ -295,6 +345,8 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
         st.distinct[text] += 1
         if not text.strip():
             st.blank += 1
+        if _is_unset(text):
+            st.unset += 1
         return
 
     if fld.usage is Usage.COMP3:
@@ -321,7 +373,7 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
             st.overpunch_negative += 1
         else:
             st.overpunch_positive += 1
-    elif last and not last.isdigit():
+    elif last and not last.isdigit() and last in _SIGN_CHARS:
         st.nondigit_last_byte += 1
         if last in "+-":
             st.ascii_signed += 1
@@ -343,6 +395,8 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
     digits = "".join(c for c in digits if c.isdigit())
     if not text.strip():
         st.blank += 1
+    if _is_unset(text):
+        st.unset += 1
     if digits and set(digits) == {"0"}:
         st.all_zero += 1
     st.max_significant_digits = max(st.max_significant_digits, len(digits.lstrip("0")))

@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from .layout import Field, Layout, Usage
 from . import predicates as pred
-from .probe import Finding, FieldStats
+from .probe import Finding, FieldStats, field_key
 
 
 def _pct(n: int, total: int) -> str:
@@ -22,7 +22,7 @@ def _pct(n: int, total: int) -> str:
 def evaluate(layout: Layout, stats: dict[str, FieldStats]) -> list[Finding]:
     out: list[Finding] = []
     for fld in layout.elementary_fields():
-        st = stats.get(fld.name)
+        st = stats.get(field_key(fld))
         if st is None or st.examined == 0:
             continue
         out.extend(_field_rules(fld, st))
@@ -117,8 +117,9 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
     if pred.never_populated(fld, st):
         out.append(Finding(
             code="NEVER_POPULATED", severity="info", field=fld.name,
-            claim="field is blank or zero in every record examined",
-            evidence={"blank": f"{st.blank:,}", "zero": f"{st.all_zero:,}"},
+            claim="field is blank, zero or low-values in every record examined",
+            evidence={"blank": f"{st.blank:,}", "zero": f"{st.all_zero:,}",
+                      "unset": f"{st.unset:,}", "of": f"{st.examined:,}"},
             records=st.examined))
 
     if pred.invalid_packed(fld, st):
@@ -146,27 +147,37 @@ def _condition_rules(layout: Layout, stats: dict[str, FieldStats]) -> list[Findi
     for fld in layout.elementary_fields():
         if not fld.conditions:
             continue
-        st = stats.get(fld.name)
-        claimed: Counter = Counter()
+        st = stats.get(field_key(fld))
         owner: dict[str, list[str]] = {}
         for name, values in fld.conditions.items():
             for v in values:
-                claimed[v] += 1
                 owner.setdefault(v, []).append(name)
 
-        for value, count in claimed.items():
-            if count > 1:
-                out.append(Finding(
-                    code="AMBIGUOUS_CONDITION", severity="critical", field=fld.name,
-                    claim=(f"value {value!r} is claimed by {count} different "
-                           f"condition names; which one is meant cannot be settled "
-                           f"from the copybook or the data"),
-                    evidence={"value": value, "names": ", ".join(owner[value])},
-                    records=st.examined if st else 0))
+        # via the shared predicate: this rule had its own inline copy and never
+        # got the narrowing, so it kept reporting the ordinary
+        # "VALUE 'F' 'N'" validity idiom as nine critical findings
+        for value in pred.duplicated_condition_values(fld):
+            names = [n for n in owner.get(value, [])
+                     if len(fld.conditions[n]) == 1]
+            out.append(Finding(
+                code="AMBIGUOUS_CONDITION", severity="critical", field=fld.name,
+                claim=(f"value {value!r} is claimed by {len(names)} different "
+                       f"condition names, each as its only value; which one is "
+                       f"meant cannot be settled from the copybook or the data"),
+                evidence={"value": value, "names": ", ".join(names)},
+                records=st.examined if st else 0))
 
         if st:
-            uncovered = {v.strip(): c for v, c in st.distinct.items()
-                         if v.strip() and v.strip() not in claimed}
+            unset, examined = pred.unset_share(fld, st)
+            if unset and examined and unset < examined:
+                out.append(Finding(
+                    code="MOSTLY_UNSET", severity="info", field=fld.name,
+                    claim=("this coded field carries no value in most records; "
+                           "low-values are how a mainframe says 'not set'"),
+                    evidence={"unset": f"{unset:,}", "of": f"{examined:,}",
+                              "share": _pct(unset, examined)},
+                    records=examined))
+            uncovered = pred.uncovered_values(fld, st)
             if uncovered:
                 out.append(Finding(
                     code="UNCOVERED_VALUE", severity="warn", field=fld.name,

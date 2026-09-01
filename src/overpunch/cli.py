@@ -31,6 +31,9 @@ def _layout_table(layout: Layout) -> str:
                     f"{f.pic.raw:<14} {f.usage.value}")
     rows.append("-" * 72)
     rows.append(f"record length: {layout.record_length()} bytes")
+    if layout.record_bytes_override is not None:
+        rows.append(f"record length overridden to {layout.record_bytes_override} "
+                    f"bytes; the fields describe {layout.described_length()}")
     if layout.is_fragment:
         rows.append("note: no 01 level - this is a fragment, meant to be COPY'd "
                     "into a record declared elsewhere")
@@ -60,12 +63,16 @@ def cmd_layout(args) -> int:
                   f"{len(r.elementary_fields()):>4} fields")
         print("\nShowing the first. Use --record NAME for another.\n")
     layout = _pick(records, args.record, args.copybook)
+    if args.record_bytes:
+        layout.record_bytes_override = args.record_bytes
     print(_layout_table(layout))
     return 0
 
 
 def cmd_scan(args) -> int:
     layout = parse_file(args.copybook)
+    if args.record_bytes:
+        layout.record_bytes_override = args.record_bytes
     size = Path(args.data).stat().st_size
     rlen = layout.record_length()
     recfm = (detect_recfm(args.data, rlen) if args.recfm == "auto" else args.recfm)
@@ -88,6 +95,10 @@ def cmd_scan(args) -> int:
         from .probe import explain_mismatch
         for note in explain_mismatch(size, rlen, args.data):
             print(f"    - {note}")
+        from .probe import partial_view_note
+        hint = partial_view_note(layout)
+        if hint:
+            print(f"    - {hint}")
         return 2
 
     stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit,
@@ -111,6 +122,8 @@ def cmd_scan(args) -> int:
 
 def cmd_decode(args) -> int:
     layout = parse_file(args.copybook)
+    if args.record_bytes:
+        layout.record_bytes_override = args.record_bytes
     fields = [f for f in layout.elementary_fields() if not f.is_filler]
     columns: dict[str, list] = {f.name: [] for f in fields}
     n = 0
@@ -344,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("layout", help="show the record layout the copybook describes")
     p.add_argument("copybook")
     p.add_argument("--record", help="pick one when the copybook declares several")
+    p.add_argument("--record-bytes", type=int,
+                   help="override the record length when the copybook is "
+                        "only a view of a longer record")
     p.set_defaults(func=cmd_layout)
 
     p = sub.add_parser("scan", help="measure a data file against its copybook")
@@ -353,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--record-bytes", type=int,
+                   help="override the record length when the copybook is "
+                        "only a view of a longer record")
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("decode", help="decode to Parquet or CSV")
@@ -363,6 +382,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--record-bytes", type=int,
+                   help="override the record length when the copybook is "
+                        "only a view of a longer record")
     p.set_defaults(func=cmd_decode)
 
     p = sub.add_parser("explain",

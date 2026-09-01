@@ -26,6 +26,17 @@ function splitSign(t){
 }
 function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
 
+/* Low-values and spaces are how a mainframe says "no value". str.trim() does
+   not remove 0x00, so a column left entirely unset looked populated. */
+function isUnset(t){
+  if(!t.length) return true;
+  for(var i = 0; i < t.length; i++){
+    var c = t.charAt(i);
+    if(c !== "\u0000" && c !== " " && c !== "\u00ff") return false;
+  }
+  return true;
+}
+
 /* The sign is in the ZONE NIBBLE of the last byte - 0xC_ positive, 0xD_
    negative - which every EBCDIC page shares. The character it decodes to does
    not: 0xD0 is '}' in cp037, 'ü' in cp273, 'ğ' in cp1026. Reading the sign from
@@ -79,6 +90,7 @@ function observe(st, f, bytes, off){
   if(!f.pic || !f.pic.numeric){
     st.distinct[t] = (st.distinct[t]||0) + 1;
     if(!t.trim()) st.blank++;
+    if(isUnset(t)) st.unset++;
     return;
   }
   if(f.usage === "COMP-3"){
@@ -115,6 +127,7 @@ function observe(st, f, bytes, off){
   var sp2 = zoned ? {d: t.slice(0,-1) + zoned.d, s: zoned.s} : splitSign(t);
   var d = digitsOf(sp2.d);
   if(!t.trim()) st.blank++;
+  if(isUnset(t)) st.unset++;
   if(d && /^0+$/.test(d)) st.allZero++;
   st.widest = Math.max(st.widest, d.replace(/^0+/,"").length);
 
@@ -161,7 +174,7 @@ function scan(layout, bytes, limit){
   if(limit) offsets = offsets.slice(0, limit);
   var n = offsets.length;
   layout.fields.forEach(function(f){
-    stats[f.name] = {examined:0, blank:0, allZero:0, nonDigitLast:0, negative:0,
+    stats[f.name] = {examined:0, blank:0, unset:0, allZero:0, nonDigitLast:0, negative:0,
                      positive:0, widest:0, distinct:{}, undecodable:0,
                      invalidPacked:0, sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
@@ -224,17 +237,19 @@ function findings(layout, res){
         evidence:{declared_digits:p.digits-p.scale, widest_observed:st.widest},
         records:st.examined});
     }
-    if(isFiller && st.blank < st.examined){
+    if(isFiller && st.unset < st.examined){
       out.push({code:"POPULATED_FILLER", severity:"warn",
         field:"FILLER @ offset "+f.offset,
         claim:"declared FILLER but carries data; something is in this field that the copybook does not describe",
         evidence:{non_blank:(st.examined-st.blank).toLocaleString(),
                   distinct_values:Object.keys(st.distinct).length}, records:st.examined});
     }
-    if(st.blank === st.examined || st.allZero === st.examined){
+    if(st.blank === st.examined || st.allZero === st.examined ||
+       st.unset === st.examined){
       out.push({code:"NEVER_POPULATED", severity:"info", field:f.name,
-        claim:"field is blank or zero in every record examined",
-        evidence:{blank:st.blank.toLocaleString(), zero:st.allZero.toLocaleString()},
+        claim:"field is blank, zero or low-values in every record examined",
+        evidence:{blank:st.blank.toLocaleString(), zero:st.allZero.toLocaleString(),
+                  unset:st.unset.toLocaleString(), of:st.examined.toLocaleString()},
         records:st.examined});
     }
     if(st.invalidPacked){
@@ -254,13 +269,23 @@ function findings(layout, res){
   layout.fields.forEach(function(f){
     var keys = Object.keys(f.conditions);
     if(!keys.length) return;
-    var st = res.stats[f.name], claimed = {}, owner = {};
-    keys.forEach(function(k){ f.conditions[k].forEach(function(v){
-      claimed[v] = (claimed[v]||0)+1; (owner[v]=owner[v]||[]).push(k); }); });
-    Object.keys(claimed).forEach(function(v){
-      if(claimed[v] > 1) out.push({code:"AMBIGUOUS_CONDITION", severity:"critical",
+    var st = res.stats[f.name], claimed = {}, owner = {}, singles = {};
+    keys.forEach(function(k){
+      var vals = f.conditions[k] || [];
+      vals.forEach(function(v){
+        claimed[v] = (claimed[v]||0)+1; (owner[v]=owner[v]||[]).push(k); });
+      // only a condition whose ONLY value is v makes v ambiguous; one that
+      // enumerates the permitted set beside the specific ones is ordinary COBOL
+      var ranges = (f.conditionRanges || {})[k];
+      if(vals.length === 1 && !(ranges && ranges.length)){
+        singles[vals[0]] = (singles[vals[0]]||0)+1;
+        (owner[vals[0]]=owner[vals[0]]||[]);
+      }
+    });
+    Object.keys(singles).forEach(function(v){
+      if(singles[v] > 1) out.push({code:"AMBIGUOUS_CONDITION", severity:"critical",
         field:f.name,
-        claim:"value '"+v+"' is claimed by "+claimed[v]+" different condition names; which one is meant cannot be settled from the copybook or the data",
+        claim:"value '"+v+"' is claimed by "+singles[v]+" different condition names; which one is meant cannot be settled from the copybook or the data",
         evidence:{value:v, names:owner[v].join(", ")}, records:st?st.examined:0});
     });
     if(st){

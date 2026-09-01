@@ -24,7 +24,7 @@ from datetime import date
 from .decode import decode_text, split_overpunch
 from .layout import Field, Layout, Usage
 from . import predicates as pred
-from .probe import FieldStats, iter_records
+from .probe import FieldStats, field_key, iter_records
 
 NIM_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
 DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
@@ -86,7 +86,7 @@ def profile(layout: Layout, stats: dict[str, FieldStats]) -> dict:
     """
     fields = []
     for f in layout.elementary_fields():
-        st = stats.get(f.name)
+        st = stats.get(field_key(f))
         if st is None:
             continue
         observed = {
@@ -299,7 +299,7 @@ def adjudicate(hyps: list[Hypothesis], layout: Layout,
             out.append(Adjudication(h, "UNTESTABLE",
                                     {"reason": "outside the testable vocabulary"}))
             continue
-        st = stats.get(fld.name)
+        st = stats.get(field_key(fld))
         if st is None or st.examined == 0:
             # Group items are not elementary, so nothing measured them field by
             # field. Tests that read the raw bytes directly do not need that.

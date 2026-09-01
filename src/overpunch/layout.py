@@ -48,6 +48,8 @@ class Field:
     redefines: str | None = None
     redefines_external: bool = False   # target lives in another copybook
     conditions: dict[str, list[str]] = dc_field(default_factory=dict)  # 88-levels
+    condition_ranges: dict[str, list[tuple[str, str]]] = dc_field(
+        default_factory=dict)   # 88 VALUE x THRU y
     children: list["Field"] = dc_field(default_factory=list)
     offset: int = 0            # byte offset from start of record, filled by Layout
     parent: "Field | None" = None
@@ -113,8 +115,17 @@ class Layout:
     source_name: str = "<copybook>"
     is_fragment: bool = False      # no 01 level: meant to be COPY'd into a record
     other_records: list[str] = dc_field(default_factory=list)
+    # A copybook that REDEFINES an area declared elsewhere describes only PART
+    # of the record. The real length then comes from the file, not the fields.
+    record_bytes_override: int | None = None
 
     def record_length(self) -> int:
+        if self.record_bytes_override is not None:
+            return self.record_bytes_override
+        return self.root.size()
+
+    def described_length(self) -> int:
+        """What the fields themselves add up to, ignoring any override."""
         return self.root.size()
 
     def assign_offsets(self) -> None:
@@ -172,10 +183,10 @@ class Layout:
         if not leaves:
             return
         reach = max(f.offset + f.total_size() for f in leaves)
-        if reach > self.record_length():
+        if reach > self.described_length():
             raise LayoutError(
                 f"field offsets reach byte {reach} but the record is "
-                f"{self.record_length()} bytes; the layout disagrees with itself")
+                f"{self.described_length()} bytes; the layout disagrees with itself")
 
     def walk_all(self) -> list[Field]:
         out: list[Field] = []

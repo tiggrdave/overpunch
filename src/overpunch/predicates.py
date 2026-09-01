@@ -68,22 +68,81 @@ def invalid_packed(fld: Field, st: FieldStats) -> bool:
 
 
 def never_populated(fld: Field, st: FieldStats) -> bool:
+    """Empty in every record - blank, zero, or low-values.
+
+    Low-values had to be added: `blank` counts whitespace, and str.strip() does
+    not remove 0x00, so a column that a mainframe had left entirely unset
+    produced no finding at all. On a real file two coded fields were empty in
+    all 703 records and the tool said nothing about either.
+    """
     return bool(st.examined and (st.blank == st.examined or
-                                 st.all_zero == st.examined))
+                                 st.all_zero == st.examined or
+                                 st.unset == st.examined))
 
 
 def populated_filler(fld: Field, st: FieldStats) -> bool:
-    return bool(fld.is_filler and st.examined and st.blank < st.examined)
+    """FILLER that carries a real value.
+
+    `blank` only tests for whitespace, and a mainframe writes low-values into
+    space it is not using. A FILLER full of 0x00 is reserved space behaving
+    exactly as intended, not an undocumented field.
+    """
+    return bool(fld.is_filler and st.examined and st.unset < st.examined)
 
 
 def duplicated_condition_values(fld: Field) -> list[str]:
-    counts = Counter(v for vals in fld.conditions.values() for v in vals)
-    return [v for v, n in counts.items() if n > 1]
+    """Values that two conditions each claim as their ONLY value.
+
+    A condition enumerating the permitted set beside conditions naming each
+    member of it is ordinary COBOL, not an ambiguity:
+
+        88  CLASS-VALID      VALUE 'F' 'N'.
+        88  CLASS-FRAUD      VALUE 'F'.
+        88  CLASS-NON-FRAUD  VALUE 'N'.
+
+    Flagging that reported nine critical findings on one real file and every one
+    was noise. What is genuinely unresolvable is two names for the same single
+    value, where nothing says which was meant.
+    """
+    singles = Counter()
+    for name, values in fld.conditions.items():
+        if len(values) == 1 and not fld.condition_ranges.get(name):
+            singles[values[0]] += 1
+    return [v for v, n in singles.items() if n > 1]
+
+
+def _in_any_range(value: str, fld: Field) -> bool:
+    for spans in fld.condition_ranges.values():
+        for lo, hi in spans:
+            if lo <= value <= hi:
+                return True
+            try:
+                if float(lo) <= float(value) <= float(hi):
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def is_unset(text: str) -> bool:
+    """Low-values and spaces are how a mainframe says "no value".
+
+    They are not an undeclared code, and reporting them as one buried a real
+    observation - this column is empty in 690 of 703 records - inside a finding
+    about condition coverage.
+    """
+    return all(c in ("\x00", " ", "\xff") for c in text) if text else True
+
+
+def unset_share(fld: Field, st: FieldStats) -> tuple[int, int]:
+    """(records where the field is unset, records examined)."""
+    return st.unset, st.examined
 
 
 def uncovered_values(fld: Field, st: FieldStats) -> dict[str, int]:
-    if not fld.conditions:
+    if not fld.conditions and not fld.condition_ranges:
         return {}
     claimed = {v for vals in fld.conditions.values() for v in vals}
     return {v.strip(): c for v, c in st.distinct.items()
-            if v.strip() and v.strip() not in claimed}
+            if not is_unset(v) and v.strip() not in claimed
+            and not _in_any_range(v.strip(), fld)}
