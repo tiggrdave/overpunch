@@ -73,14 +73,24 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                         f"(difference {st.sum_correct - st.sum_forced_signed:,.2f})")))
 
     if pred.implied_decimal(fld, st):
+        if fld.usage is Usage.DISPLAY:
+            claim = (f"{pic.scale} implied decimal place(s); the bytes contain no "
+                     f"decimal point, so a digits-only read is 10^{pic.scale} "
+                     f"too large")
+            impact = (f"correct total {st.sum_correct:,.2f}; "
+                      f"digits-only read {st.sum_naive:,.0f}")
+        else:
+            claim = (f"{pic.scale} implied decimal place(s) on a "
+                     f"{fld.usage.value} field; the value is stored unscaled, and "
+                     f"a decoder that returns the integer leaves the caller "
+                     f"10^{pic.scale} too large")
+            impact = (f"correct total {st.sum_correct:,.2f}; unscaled "
+                      f"{st.sum_correct.scaleb(pic.scale):,.0f}")
         out.append(Finding(
-            code="IMPLIED_DECIMAL", severity="warn", field=fld.name,
-            claim=(f"{pic.scale} implied decimal place(s); the bytes contain no "
-                   f"decimal point, so a digits-only read is 10^{pic.scale} too large"),
-            evidence={"declared": pic.raw, "scale": pic.scale},
-            records=st.examined,
-            impact=(f"correct total {st.sum_correct:,.2f}; "
-                    f"digits-only read {st.sum_naive:,.0f}")))
+            code="IMPLIED_DECIMAL", severity="warn", field=fld.name, claim=claim,
+            evidence={"declared": pic.raw, "scale": pic.scale,
+                      "usage": fld.usage.value},
+            records=st.examined, impact=impact))
 
     if pred.width_underfill(fld, st):
         out.append(Finding(

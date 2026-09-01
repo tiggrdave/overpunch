@@ -11,3 +11,4 @@ out.parquet
 *.api-key
 nvapi-*
 demo/carddemo/
+samples/data/

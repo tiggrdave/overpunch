@@ -41,8 +41,15 @@ def undeclared_sign(fld: Field, st: FieldStats) -> bool:
 
 
 def implied_decimal(fld: Field, st: FieldStats) -> bool:
-    return bool(fld.pic and fld.pic.is_numeric and fld.pic.scale
-                and fld.usage is Usage.DISPLAY)
+    """A declared scale with no decimal point stored anywhere.
+
+    This was restricted to DISPLAY fields, which quietly exempted packed and
+    binary money - the exact same trap. A COMP-3 decoder that returns the
+    integer and leaves scaling to the caller is the common case, and the caller
+    routinely forgets. The corpus caught this: samples/packed-heavy is a file of
+    signed, scaled COMP-3 money about which the tool had nothing to say.
+    """
+    return bool(fld.pic and fld.pic.is_numeric and fld.pic.scale)
 
 
 def width_underfill(fld: Field, st: FieldStats) -> bool:

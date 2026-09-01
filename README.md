@@ -198,6 +198,41 @@ as NULL in a format that has no NULL; and whether `COMP-1` is IBM hexadecimal or
 IEEE, which **nothing in the bytes distinguishes** — so the default is written
 onto the column it affects.
 
+## The sample corpus
+
+```bash
+make samples          # generates samples/data/, nothing binary is committed
+pytest tests/test_samples.py
+```
+
+One file per thing that can go wrong, each with its expected findings written
+down in `samples/MANIFEST.json` **before** the tool is run:
+
+| sample | what it is for | expected |
+|---|---|---|
+| `clean` | a file with nothing wrong with it | *no findings at all* |
+| `ascii-separate-sign` | not every extract is EBCDIC; some carry a real `+`/`-` | TRAILING_SIGN, IMPLIED_DECIMAL |
+| `packed-heavy` | COMP-3 money, two digits a byte | IMPLIED_DECIMAL |
+| `corrupt-packed` | a COMP-3 field that is not actually packed | INVALID_PACKED, IMPLIED_DECIMAL |
+| `wrong-copybook` | a copybook that does not describe the file | *refuses to scan* |
+| `variable-blocked` | RECFM=VB, with a record descriptor word | *refuses to scan* |
+| `never-populated` | a reserved field nobody ever used, and an uncovered code |  NEVER_POPULATED, UNCOVERED_VALUE |
+
+Plus `demo/UTLBILL` (the teaching case), `demo/TORTURE` (every awkward
+construct), a German cp273 file built in `tests/test_codepages.py`, a scanned
+copybook under `demo/scans/`, and the real AWS CardDemo files.
+
+`clean` is the one that matters most. Every other sample checks that something
+*is* found; that one checks that nothing is, which is what stops the rules
+drifting into noise.
+
+**Building the corpus immediately found a gap.** `packed-heavy` produced no
+findings at all, because `IMPLIED_DECIMAL` only fired on `DISPLAY` fields - so a
+file of signed, scaled `COMP-3` money carrying exactly the same 100x trap got
+silence. A decoder that returns the packed integer and leaves scaling to the
+caller is the common case, and the caller routinely forgets. Now reported for
+any usage.
+
 ## Against a real mainframe application
 
 Everything else here is synthetic by design. This is the control:

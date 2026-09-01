@@ -1,4 +1,4 @@
-.PHONY: demo test page verify-js scan explain clean
+.PHONY: demo test page samples verify-js scan explain clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -23,9 +23,13 @@ verify-js: $(VENV)
 	$(PY) page/reference.py
 	node page/verify_js.js
 
+samples: $(VENV)
+	$(PY) samples/build_samples.py
+
 test: $(VENV)
+	$(PY) samples/build_samples.py
 	$(PY) -m pytest -q
 
 clean:
-	rm -rf $(VENV) demo/UTLBILL.dat demo/UTLBILL.cpy out.parquet .pytest_cache
+	rm -rf $(VENV) demo/UTLBILL.dat samples/data demo/UTLBILL.cpy out.parquet .pytest_cache
 	find . -name __pycache__ -type d -exec rm -rf {} +

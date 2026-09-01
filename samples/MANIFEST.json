@@ -1,0 +1,94 @@
+[
+  {
+    "name": "clean",
+    "why": "a detector that fires on every file is not a detector",
+    "encoding": "cp037",
+    "expect": [],
+    "record_bytes": 22,
+    "records": 50,
+    "note": "must produce NO findings at all",
+    "copybook": "clean.cpy",
+    "data": "clean.dat"
+  },
+  {
+    "name": "ascii-separate-sign",
+    "why": "not every fixed-width extract is EBCDIC; some carry a real +/- character",
+    "encoding": "latin1",
+    "expect": [
+      "IMPLIED_DECIMAL",
+      "TRAILING_SIGN"
+    ],
+    "record_bytes": 19,
+    "records": 60,
+    "note": "",
+    "copybook": "ascii-separate-sign.cpy",
+    "data": "ascii-separate-sign.dat"
+  },
+  {
+    "name": "packed-heavy",
+    "why": "COMP-3 is two digits a byte with the sign in the final nibble; read as text it is unprintable and as a string it is truncated",
+    "encoding": "cp037",
+    "expect": [
+      "IMPLIED_DECIMAL"
+    ],
+    "record_bytes": 21,
+    "records": 40,
+    "note": "scaled money in COMP-3 carries the same 100x trap as DISPLAY",
+    "copybook": "packed-heavy.cpy",
+    "data": "packed-heavy.dat"
+  },
+  {
+    "name": "corrupt-packed",
+    "why": "a COMP-3 field that is not actually packed - wrong usage, or wrong offset",
+    "encoding": "cp037",
+    "expect": [
+      "IMPLIED_DECIMAL",
+      "INVALID_PACKED"
+    ],
+    "record_bytes": 21,
+    "records": 40,
+    "note": "",
+    "copybook": "corrupt-packed.cpy",
+    "data": "corrupt-packed.dat"
+  },
+  {
+    "name": "wrong-copybook",
+    "why": "the copybook does not describe this file, and nothing downstream would be trustworthy if it carried on",
+    "encoding": "cp037",
+    "expect": [
+      "LAYOUT_MISMATCH"
+    ],
+    "record_bytes": 21,
+    "records": null,
+    "note": "scan must refuse rather than report findings",
+    "copybook": "wrong-copybook.cpy",
+    "data": "wrong-copybook.dat"
+  },
+  {
+    "name": "variable-blocked",
+    "why": "RECFM=VB: every record carries a 4-byte record descriptor word, which this tool does not yet unpack",
+    "encoding": "cp037",
+    "expect": [
+      "LAYOUT_MISMATCH"
+    ],
+    "record_bytes": 22,
+    "records": null,
+    "note": "a known limitation, and it fails loudly instead of decoding wrongly",
+    "copybook": "variable-blocked.cpy",
+    "data": "variable-blocked.dat"
+  },
+  {
+    "name": "never-populated",
+    "why": "a reserved field carried through every migration and never used, and a code no 88-level accounts for",
+    "encoding": "cp037",
+    "expect": [
+      "NEVER_POPULATED",
+      "UNCOVERED_VALUE"
+    ],
+    "record_bytes": 18,
+    "records": 30,
+    "note": "",
+    "copybook": "never-populated.cpy",
+    "data": "never-populated.dat"
+  }
+]

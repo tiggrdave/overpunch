@@ -134,12 +134,18 @@ function findings(layout, res){
                  money(st.sumForced)+" (difference "+money(st.sumCorrect-st.sumForced)+")"});
       }
     }
-    if(p && p.numeric && p.scale && f.usage === "DISPLAY"){
+    if(p && p.numeric && p.scale){
+      var display = f.usage === "DISPLAY";
       out.push({code:"IMPLIED_DECIMAL", severity:"warn", field:f.name,
-        claim:p.scale+" implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^"+p.scale+" too large",
-        evidence:{declared:p.raw, scale:p.scale}, records:st.examined,
-        impact:"correct total "+money(st.sumCorrect)+"; digits-only read "+
-               st.sumNaive.toLocaleString()});
+        claim: display
+          ? p.scale+" implied decimal place(s); the bytes contain no decimal point, so a digits-only read is 10^"+p.scale+" too large"
+          : p.scale+" implied decimal place(s) on a "+f.usage+" field; the value is stored unscaled, and a decoder that returns the integer leaves the caller 10^"+p.scale+" too large",
+        evidence:{declared:p.raw, scale:p.scale, usage:f.usage},
+        records:st.examined,
+        impact: display
+          ? "correct total "+money(st.sumCorrect)+"; digits-only read "+st.sumNaive.toLocaleString()
+          : "correct total "+money(st.sumCorrect)+"; unscaled "+
+            Math.round(st.sumCorrect*Math.pow(10,p.scale)).toLocaleString()});
     }
     if(p && p.numeric && p.scale === 0 && st.widest && st.widest <= (p.digits - p.scale) - 1){
       out.push({code:"WIDTH_UNDERFILL", severity:"warn", field:f.name,
