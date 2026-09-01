@@ -28,3 +28,10 @@ table.layout td{padding:3px 9px 3px 0;border-bottom:1px solid var(--rule);
 table.layout td.n{text-align:right}
 .scroller{max-height:300px;overflow:auto}
 .dec .hint{font-size:12px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+
+.clearone{margin-top:8px;font-size:11.5px;padding:3px 8px;
+  border-color:var(--rule);color:var(--ink-3)}
+.clearone:hover{border-color:var(--oxide);color:var(--oxide)}
+.drop.filled .fname{font-weight:500}
+.stale{border-color:var(--ochre)!important;background:var(--ochre-soft)!important}
+.stale .fname{color:var(--ochre)}

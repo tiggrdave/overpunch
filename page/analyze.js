@@ -1,6 +1,6 @@
 /* ---- analyse a copybook (and optionally a data file) locally ---- */
 (function(){
-var cpyText=null, cpyName="", datBytes=null, datName="";
+var cpyText=null, cpyName="", datBytes=null, datName="", cpyLoadedAfterData=false;
 var TABLES=D.encodings;
 var MAX_RECORDS=5000, MAX_BYTES=32*1024*1024;
 
@@ -8,6 +8,34 @@ function setName(which,name,bytes){
   document.getElementById("name-"+which).textContent =
     name ? name + (bytes!=null ? "  ("+bytes.toLocaleString()+" bytes)" : "") : "";
   document.getElementById("drop-"+which).className = "drop"+(name?" filled":"");
+  document.getElementById("clear-"+which).hidden = !name;
+}
+
+/* The two inputs are independent on purpose: swapping copybooks against one
+   data file is a real workflow - it is how you find out which of two layouts
+   describes a file. But holding a file invisibly across a swap is a trap, so a
+   data file that has outlived the copybook it was loaded with is marked. */
+function markStale(){
+  var d = document.getElementById("drop-dat");
+  if(datBytes && cpyLoadedAfterData) d.classList.add("stale");
+  else d.classList.remove("stale");
+}
+
+function clearOne(which){
+  if(which === "cpy"){ cpyText = null; cpyName = ""; }
+  else { datBytes = null; datName = ""; cpyLoadedAfterData = false; }
+  document.getElementById("in-"+which).value = "";
+  setName(which, "");
+  markStale();
+  var r = document.getElementById("result");
+  r.hidden = true; r.textContent = "";
+  msg("");
+}
+
+function clearAll(){
+  clearOne("cpy"); clearOne("dat");
+  document.getElementById("in-reclen").value = "";
+  msg("Cleared.");
 }
 function msg(t,bad){
   var m=document.getElementById("run-msg");
@@ -16,7 +44,14 @@ function msg(t,bad){
 document.getElementById("in-cpy").onchange=function(e){
   var f=e.target.files[0]; if(!f)return;
   var r=new FileReader();
-  r.onload=function(){ cpyText=r.result; cpyName=f.name; setName("cpy",f.name,f.size); msg(""); };
+  r.onload=function(){
+    cpyText=r.result; cpyName=f.name;
+    cpyLoadedAfterData = !!datBytes;
+    setName("cpy",f.name,f.size); markStale();
+    msg(cpyLoadedAfterData
+        ? "New copybook. "+datName+" is still loaded — remove it if you meant to start over."
+        : "");
+  };
   r.readAsText(f);
 };
 document.getElementById("in-dat").onchange=function(e){
@@ -24,7 +59,7 @@ document.getElementById("in-dat").onchange=function(e){
   if(f.size>MAX_BYTES){ msg("that file is larger than 32 MB — analyse a slice of it instead",true); return; }
   var r=new FileReader();
   r.onload=function(){ datBytes=new Uint8Array(r.result); datName=f.name;
-    setName("dat",f.name,f.size); msg(""); };
+    cpyLoadedAfterData=false; setName("dat",f.name,f.size); markStale(); msg(""); };
   r.readAsArrayBuffer(f);
 };
 function loadSample(sample){
@@ -45,6 +80,9 @@ if(de) de.onclick=function(){
 };
 function msgText(){ return document.getElementById("run-msg").textContent; }
 document.getElementById("run-analyze").onclick=analyse;
+document.getElementById("run-clear").onclick=clearAll;
+document.getElementById("clear-cpy").onclick=function(){clearOne("cpy");};
+document.getElementById("clear-dat").onclick=function(){clearOne("dat");};
 
 /* Only the divisors of the file size can be the record length. Saying which,
    and whether one is this record plus a header, turns a dead end into a lead. */
@@ -87,6 +125,7 @@ function analyse(){
   host.hidden=false; host.textContent="";
   if(!cpyText){ msg("choose a copybook first",true); return; }
   var enc=document.getElementById("in-enc").value;
+  var override=parseInt(document.getElementById("in-reclen").value,10);
   var layout;
   try{ layout=COBOL.parse(cpyText); }
   catch(err){
@@ -100,9 +139,10 @@ function analyse(){
     host.appendChild(e); return;
   }
 
+  if(override > 0) layout.recordLen = override;
   var head=el("div");
-  head.appendChild(el("div","eyebrow",cpyName+"  ·  "+layout.recordLen+"-byte record  ·  "+
-    layout.fields.length+" fields"));
+  head.appendChild(el("div","eyebrow",cpyName+"  ·  "+layout.recordLen+"-byte record"+
+    (override > 0 ? " (overridden)" : "")+"  ·  "+layout.fields.length+" fields"));
   host.appendChild(head);
 
   var wrap=el("div","scroller");

@@ -15,11 +15,13 @@
         <label for="in-cpy">Copybook (required)</label>
         <input type="file" id="in-cpy" accept=".cpy,.cbl,.cob,.txt,text/plain">
         <div class="fname" id="name-cpy"></div>
+        <button class="clearone" id="clear-cpy" hidden>remove</button>
       </div>
       <div class="drop" id="drop-dat">
         <label for="in-dat">Data file (optional)</label>
         <input type="file" id="in-dat">
         <div class="fname" id="name-dat"></div>
+        <button class="clearone" id="clear-dat" hidden>remove</button>
       </div>
       <div class="drop" style="border-style:solid;background:var(--surface)">
         <label for="in-enc">Code page</label>
@@ -32,10 +34,18 @@
           <option value="latin1">latin-1 — plain ASCII/ANSI</option>
         </select>
         <div class="fname">Change it if text reads as gibberish.</div>
+        <label for="in-reclen" style="margin-top:12px">Record length</label>
+        <input type="number" id="in-reclen" min="1" placeholder="from the copybook"
+               style="font:inherit;font-size:12.5px;width:100%;padding:5px 7px;
+                      border:1px solid var(--rule-2);border-radius:2px;
+                      background:var(--surface);color:var(--ink)">
+        <div class="fname">Set this when the copybook is only a view of a
+        longer record.</div>
       </div>
     </div>
     <div class="runrow">
       <button id="run-analyze">Analyse</button>
+      <button id="run-clear">Clear both</button>
       <button id="run-sample">CardDemo sample (cp037)</button>
       <button id="run-sample-de">German sample (cp273)</button>
       <span class="rmsg" id="run-msg"></span>
