@@ -24,6 +24,11 @@ PAIRS = [
     ("demo/carddemo/CVACT02Y.cpy", "demo/carddemo/CARDDATA.PS"),
     # a RECFM=VB file, so the comparison actually exercises descriptor words
     ("samples/data/variable-blocked.cpy", "samples/data/variable-blocked.dat"),
+    # a numeric field left as low-values, which is how a mainframe says "unset".
+    # Without this the two implementations disagreed on a real file: one counted
+    # every non-digit final byte as a sign, the other only real sign characters.
+    ("samples/data/unset-numeric.cpy", "samples/data/unset-numeric.dat"),
+    ("samples/data/range-condition.cpy", "samples/data/range-condition.dat"),
 ]
 LIMIT = 300
 

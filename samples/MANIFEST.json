@@ -88,5 +88,33 @@
     "note": "",
     "copybook": "never-populated.cpy",
     "data": "never-populated.dat"
+  },
+  {
+    "name": "unset-numeric",
+    "why": "low-values in a numeric field are 'not set', not a sign - the check that gets this wrong reports every empty indicator as a defect",
+    "encoding": "cp037",
+    "expect": [
+      "IMPLIED_DECIMAL",
+      "NEVER_POPULATED",
+      "TRAILING_SIGN"
+    ],
+    "record_bytes": 15,
+    "records": 60,
+    "note": "",
+    "copybook": "unset-numeric.cpy",
+    "data": "unset-numeric.dat"
+  },
+  {
+    "name": "range-condition",
+    "why": "VALUE 1 THRU 5 is a range, not two values; only 7 is genuinely uncovered, and the range must not collide with VALUE 1",
+    "encoding": "cp037",
+    "expect": [
+      "UNCOVERED_VALUE"
+    ],
+    "record_bytes": 6,
+    "records": 80,
+    "note": "",
+    "copybook": "range-condition.cpy",
+    "data": "range-condition.dat"
   }
 ]

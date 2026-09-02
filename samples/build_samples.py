@@ -179,10 +179,66 @@ def build_blank():
            expect=["NEVER_POPULATED", "UNCOVERED_VALUE"], record_bytes=18, records=30)
 
 
+RANGE_CPY = """\
+000100* A validity range beside the specific codes - ordinary COBOL.
+000200 01  RANGE-REC.
+000300     05  RR-ID        PIC 9(05).
+000400     05  RR-CAUSE     PIC 9(01).
+000500         88  RR-VALID     VALUE 1 THRU 5.
+000600         88  RR-REVERSAL  VALUE 1.
+000700         88  RR-OTHER     VALUE 5.
+"""
+
+
+def build_range():
+    rng = random.Random(12)
+    out = bytearray()
+    for i in range(80):
+        out += f"{10000 + i:05d}".encode("cp037")
+        # 7 is outside the declared range and outside every listed value
+        out += str(rng.choice([1, 2, 3, 4, 5, 7])).encode("cp037")
+    sample("range-condition",
+           "VALUE 1 THRU 5 is a range, not two values; only 7 is genuinely "
+           "uncovered, and the range must not collide with VALUE 1",
+           RANGE_CPY, bytes(out), expect=["UNCOVERED_VALUE"],
+           record_bytes=6, records=80)
+
+
+UNSET_CPY = """\
+000100* Coded indicators a mainframe leaves as low-values when unset.
+000200 01  UNSET-REC.
+000300     05  UR-ID        PIC 9(06).
+000400     05  UR-FLAG      PIC 9(01).
+000500     05  UR-CLASS     PIC X(01).
+000600     05  UR-AMOUNT    PIC S9(05)V99.
+"""
+
+
+def build_unset():
+    rng = random.Random(9)
+    out = bytearray()
+    for i in range(60):
+        out += f"{100000 + i:06d}".encode("cp037")
+        out += b"\x00"                       # a numeric indicator, never set
+        out += b"\x00"                       # a coded field, never set
+        amount = Decimal(str(round(rng.uniform(-400, 900), 2)))
+        scaled = int(amount.scaleb(2))
+        out += encode_overpunch_bytes(str(abs(scaled)).rjust(7, "0"),
+                                      scaled < 0, "cp037")
+        assert len(out) % 15 == 0
+    sample("unset-numeric",
+           "low-values in a numeric field are 'not set', not a sign - the check "
+           "that gets this wrong reports every empty indicator as a defect",
+           UNSET_CPY, bytes(out),
+           expect=["TRAILING_SIGN", "IMPLIED_DECIMAL", "NEVER_POPULATED"],
+           record_bytes=15, records=60)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
-               build_wrong_copybook, build_variable_blocked, build_blank):
+               build_wrong_copybook, build_variable_blocked, build_blank,
+               build_unset, build_range):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

@@ -169,11 +169,30 @@ function parseRecords(text){
     if(level === 88){
       if(!lastElem) return;
       var nm = rest[0] || "FILLER";
-      var vals = rest.slice(1).filter(function(t){
-        return ["VALUE","VALUES","IS","ARE","THRU","THROUGH"].indexOf(t.toUpperCase())<0;
-      }).map(function(t){ return t.replace(/^['"]|['"]$/g,""); });
-      (lastElem.conditions[nm] = lastElem.conditions[nm] || []).push.apply(
-        lastElem.conditions[nm], vals);
+      // THRU makes a RANGE. Flattening it to its endpoints invents two discrete
+      // values that were never declared, and makes `VALUE 1 THRU 5` collide with
+      // `VALUE 1` - which is ordinary COBOL, not an ambiguity.
+      var words = rest.slice(1).filter(function(t){
+        return ["VALUE","VALUES","IS","ARE"].indexOf(t.toUpperCase()) < 0; });
+      var vals = [], ranges = [], i = 0;
+      while(i < words.length){
+        var up = words[i].toUpperCase();
+        if(up === "THRU" || up === "THROUGH"){
+          if(vals.length && i + 1 < words.length){
+            ranges.push([vals.pop(), words[i+1].replace(/^['"]|['"]$/g,"")]);
+            i += 2; continue;
+          }
+          i += 1; continue;
+        }
+        vals.push(words[i].replace(/^['"]|['"]$/g,""));
+        i += 1;
+      }
+      lastElem.conditions[nm] = lastElem.conditions[nm] || [];
+      if(vals.length) lastElem.conditions[nm].push.apply(lastElem.conditions[nm], vals);
+      if(ranges.length){
+        lastElem.conditionRanges = lastElem.conditionRanges || {};
+        lastElem.conditionRanges[nm] = (lastElem.conditionRanges[nm] || []).concat(ranges);
+      }
       return;
     }
     if(level === 66) return;

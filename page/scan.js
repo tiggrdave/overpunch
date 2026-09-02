@@ -9,6 +9,15 @@ var SCAN = (function(){
 var CP037 = null;                       // injected: 256-char decode table
 var POS = "{ABCDEFGHI", NEG = "}JKLMNOPQR";
 
+/* Only these can be a sign. A low-value byte, a space or any other junk in the
+   final position means the field is UNSET, not negative. Treating every
+   non-digit as a sign reported each empty one-digit indicator as a copybook
+   error - and this was fixed in the Python and not here, so the two disagreed
+   on a real file until a reference case was added that ends a numeric field in
+   a low-value byte. */
+var SIGN_CHARS = {};
+"{ABCDEFGHI}JKLMNOPQR+-".split("").forEach(function(c){ SIGN_CHARS[c] = true; });
+
 function setTable(t){ CP037 = t; }
 
 function text(bytes, off, len){
@@ -65,6 +74,17 @@ function zoneSign(byte){
 
 function fieldLen(f){ return COBOL.size(f) * f.occurs; }
 
+function inAnyRange(value, f){
+  var ranges = f.conditionRanges || {};
+  return Object.keys(ranges).some(function(k){
+    return ranges[k].some(function(span){
+      if(span[0] <= value && value <= span[1]) return true;
+      var lo = parseFloat(span[0]), hi = parseFloat(span[1]), v = parseFloat(value);
+      return !isNaN(lo) && !isNaN(hi) && !isNaN(v) && lo <= v && v <= hi;
+    });
+  });
+}
+
 /* IBM hexadecimal float: sign bit, 7-bit excess-64 exponent, base-SIXTEEN
    fraction. Not IEEE 754 - unpacking these bytes as a C float returns a
    plausible wrong number. */
@@ -93,6 +113,15 @@ function observe(st, f, bytes, off){
     if(isUnset(t)) st.unset++;
     return;
   }
+  // a numeric field can carry 88-levels too; without its values the
+  // uncovered-value rule could never fire for one
+  var coded = Object.keys(f.conditions || {}).length ||
+              Object.keys(f.conditionRanges || {}).length;
+  if(coded && Object.keys(st.distinct).length < 1000){
+    var key = t.replace(/^\s+|\s+$/g, "");
+    st.distinct[key] = (st.distinct[key] || 0) + 1;
+  }
+
   if(f.usage === "COMP-3"){
     var bad = false;
     for(var i = off+f.offset; i < off+f.offset+len-1; i++){
@@ -119,7 +148,7 @@ function observe(st, f, bytes, off){
   if(zoned){
     st.nonDigitLast++;
     if(zoned.s < 0) st.negative++; else st.positive++;
-  } else if(last && !/[0-9]/.test(last)){
+  } else if(last && !/[0-9]/.test(last) && SIGN_CHARS[last]){
     st.nonDigitLast++;
     var sp = splitSign(t);
     if(sp.s < 0) st.negative++; else st.positive++;
@@ -291,7 +320,11 @@ function findings(layout, res){
     if(st){
       var extra = {};
       Object.keys(st.distinct).forEach(function(v){
-        var t = v.trim(); if(t && !(t in claimed)) extra[t] = st.distinct[v]; });
+        var t = v.trim();
+        // low-values are "not set", not an undeclared code, and a value inside a
+        // declared THRU range is covered even though it is not listed
+        if(isUnset(v) || !t || (t in claimed) || inAnyRange(t, f)) return;
+        extra[t] = st.distinct[v]; });
       var names = Object.keys(extra);
       if(names.length) out.push({code:"UNCOVERED_VALUE", severity:"warn", field:f.name,
         claim:"values appear in the data that no 88-level accounts for; code that switches on the declared conditions will fall through for these records",
@@ -321,10 +354,16 @@ function readValue(f, bytes, off){
     return String(f.pic.scale ? v / Math.pow(10, f.pic.scale) : v);
   }
   var t = text(bytes, at, len);
+  if(isUnset(t)) return "";                    // low-values: no value, not zero
   if(!f.pic.numeric) return t.replace(/[\u0000\s]+$/, "");
   var zoned = zoneSign(bytes[at + len - 1]);
   var sp = zoned ? {d: t.slice(0, -1) + zoned.d, s: zoned.s} : splitSign(t);
-  var digits = digitsOf(sp.d), div = Math.pow(10, f.pic.scale || 0);
+  var digits = digitsOf(sp.d);
+  // An unsigned whole number with no implied decimal is an identifier far more
+  // often than a quantity - an account number, an SSN, a postcode. Stripping its
+  // leading zeros changes what it IS, so those are kept as stored.
+  if(!f.pic.signed && !f.pic.scale) return digits;
+  var div = Math.pow(10, f.pic.scale || 0);
   var v2 = (f.pic.signed ? sp.s : 1) * parseInt(digits, 10) / div;
   return f.pic.scale ? v2.toFixed(f.pic.scale) : String(v2);
 }

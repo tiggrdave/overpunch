@@ -20,6 +20,11 @@ from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
 
+# Distinct values are recorded for character fields, and for NUMERIC fields that
+# declare conditions - a coded field has few values by construction. Recording
+# them for every numeric field would try to hold six million account numbers.
+MAX_DISTINCT = 1000
+
 # Only these can be a sign. A low-value byte, a space, or any other junk in the
 # final position is an UNPOPULATED field, not a negative number - and counting
 # it as a sign reported every empty one-digit indicator as a copybook error.
@@ -361,6 +366,11 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
         if _is_unset(text):
             st.unset += 1
         return
+
+    # a numeric field can carry 88-levels too, and without its values the
+    # uncovered-value rule could never fire for one
+    if (fld.conditions or fld.condition_ranges) and len(st.distinct) < MAX_DISTINCT:
+        st.distinct[text.strip()] += 1
 
     if fld.usage is Usage.COMP3:
         body = raw[:-1] if raw else b""
