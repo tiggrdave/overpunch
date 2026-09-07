@@ -443,7 +443,7 @@ The last one is now refused outright, naming the discarded text.
 
 ## Pointed at 885 real copybooks
 
-A production government tax system's entire copybook library. The first run
+An entire real mainframe copybook library. The first run
 parsed **727**. After the defects below it parses **861**, and the remaining 24
 are correctly identified as **procedure-division code** — COPY members holding
 executable statements, with no record layout in them at all.
@@ -467,7 +467,7 @@ Two more defects it found, on top of the five below:
 
 ## Pointed at twelve real copybooks, all twelve failed
 
-They came from a production government tax system. Nine returned a **zero-byte
+They came from a real mainframe copybook library. Nine returned a **zero-byte
 record with no error at all**; three raised. Five separate defects, every one of
 them a convention this parser had simply never met:
 
