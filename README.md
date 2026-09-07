@@ -201,10 +201,15 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ## Install
 
 ```bash
-git clone <this repo> && cd overpunch
+git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test
+make test          # 252 passed, 10 skipped
+make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
+
+Run `make test`, not bare `pytest`: the target generates the reference corpus
+first. Bare `pytest` on a fresh clone skips 37 tests with *"run
+build_samples.py to generate the corpus"*, which looks alarming and is not.
 
 For the `explain` step, a free key from [build.nvidia.com](https://build.nvidia.com)
 (no card, no paid tier):
@@ -494,7 +499,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-199 tests, in five kinds:
+252 tests, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|
@@ -502,7 +507,7 @@ None of that source appears in this repository.
 | **corpus** | each sample produces the findings its manifest declared beforehand | `samples/MANIFEST.json` |
 | **properties** | invariants over every value, page and copybook | encode→decode round-trips across four code pages and every width |
 | **metamorphic** | doubling a file doubles every total; reordering changes none | catches state leaking between records |
-| **differential** | Python and JavaScript held to identical answers | 6 files, 74 fields, 39 findings, 4 DDL renderings |
+| **differential** | Python and JavaScript held to identical answers | 9 files, 83 fields, 44 findings, 163 types |
 
 Plus boundaries — empty files, a file one byte short, single records, all-`0x00`,
 all-`0xFF` — and structural invariants asserted over every copybook in the
@@ -724,8 +729,9 @@ make verify-js
 
 runs both over every copybook and data file in the repository and fails on any
 disagreement — record length, field offsets, finding codes, severities, and the
-exact money totals in the impact lines. Currently **10 copybooks, 133 fields,
-5 data files, 35 findings, 0 disagreements**.
+exact money totals in the impact lines. It currently prints **9 files, 83
+fields, 44 findings, 4 DDL renderings, 6 dialects, 163 types compared, 0
+disagreements**.
 
 This is not ceremony. Writing the decoder a second time in a different language
 is what found the digit-dropping bug in the first one; neither implementation's
