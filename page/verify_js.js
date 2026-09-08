@@ -32,6 +32,16 @@ const ref = JSON.parse(fs.readFileSync(refPath, "utf8"));
 
 let failures = 0, comparedFields = 0, comparedFindings = 0;
 
+// "0 disagreements" over a corpus that is missing cases is not agreement, it is
+// a smaller question. reference.py records what it could not find; refuse here
+// rather than printing a green line over it.
+if (ref.skipped && ref.skipped.length) {
+  for (const m of ref.skipped)
+    console.log(`  corpus INCOMPLETE: ${m} was not on disk when reference.json was built`);
+  console.log("  run: make page   (generates the synthetic demo), then re-run");
+  failures += ref.skipped.length;
+}
+
 for (const c of ref.cases) {
   let layout;
   try { layout = COBOL.parse(c.copybook); }

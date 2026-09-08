@@ -220,13 +220,16 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 311 passed, 10 skipped
+make test          # 286 passed, 11 skipped on a cold clone
+                   # 310 passed once scripts/fetch_carddemo.py has run
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 47 tests with *"run
-build_samples.py to generate the corpus"*, which looks alarming and is not.
+first. Bare `pytest` on a fresh clone skips 46 tests with *"run
+build_samples.py to generate the corpus"*, which looks alarming and is not. The
+counts above were measured on a cold clone, not in the working tree - the two
+disagree, because the working tree has fixtures a clone does not.
 
 For the `explain` step, a free key from [build.nvidia.com](https://build.nvidia.com)
 (no card, no paid tier):
@@ -516,7 +519,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-311 tests, in five kinds:
+321 tests with the real-world fixtures fetched, 297 without, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|

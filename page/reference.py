@@ -59,6 +59,12 @@ def main() -> None:
         enc = pair[2] if len(pair) > 2 else "cp037"
         cp, dp = ROOT / cpy, ROOT / dat
         if not (cp.exists() and dp.exists()):
+            # A missing pair used to be skipped in silence, so a cold clone
+            # compared 11 files instead of 12 and verify_js still reported
+            # "0 disagreements" - a green cross-check over less than the corpus,
+            # which is the one thing this file exists to prevent.
+            missing = cpy if not cp.exists() else dat
+            out.setdefault("skipped", []).append(missing)
             continue
         layout = parse_file(str(cp))
         stats = scan(str(dp), layout, encoding=enc, limit=LIMIT)
@@ -172,6 +178,9 @@ def main() -> None:
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))
     print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases")
+    for miss in out.get("skipped", []):
+        print(f"  !! SKIPPED {miss} - not on disk; the cross-check below will "
+              f"compare LESS than the full corpus")
     for c in out["cases"]:
         print(f"  {c['name']:<16} {c['record_len']:>4}B  "
               f"{len(c['fields']):>2} fields  {len(c['findings']):>2} findings")

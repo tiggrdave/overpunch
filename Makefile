@@ -21,6 +21,7 @@ page: $(VENV)
 	$(PY) page/build.py
 
 verify-js: $(VENV)
+	$(PY) demo/make_synthetic.py --records 100000 >/dev/null
 	$(PY) page/reference.py
 	node page/verify_js.js
 
