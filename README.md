@@ -579,15 +579,18 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
   are not yet unpacked per-record.
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
-- `COMP-5` / `COMP-X` (native-endian binary) are not modelled. `COMP` is read
-  big-endian, which is right on a mainframe and on Micro Focus by default, but a
-  `COMP-5` field from a little-endian platform would be read byte-reversed. It
-  is not detected, so this is a real hole and not a warning the tool gives you.
 - A `COMP-1`/`COMP-2` column whose values all sit inside one binade cannot be
   told apart — see below. The tool reports `FLOAT_FORMAT_UNDECIDABLE` rather
   than confirming its default, which is the honest answer and not a useful one.
-- A binary column that genuinely uses its full range at both ends gives no
-  byte-order signal. `BINARY_BYTE_ORDER` stays silent rather than guessing.
+- One binary case is genuinely undetectable: a field **declared `COMP-5`** whose
+  values span its **full** binary range, read in the wrong byte order. The PIC
+  permits the range so nothing is out of bounds, and both bytes are near-uniform
+  so there is no narrow end to read the order from — `0x1234` and `0x3412` are
+  both ordinary integers. `BINARY_BYTE_ORDER` stays silent rather than guessing.
+  Everything around it is still covered: clustered values (nearly all business
+  data) are detected in both directions, and a full-range field declared plain
+  `COMP` raises `BINARY_EXCEEDS_PIC` whichever way it is read. Recourse is
+  `--binary-byteorder`, which needs knowledge the file does not carry.
 
 ## Prove the method on a sample, then run it where the file lives
 

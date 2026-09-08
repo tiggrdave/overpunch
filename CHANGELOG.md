@@ -83,8 +83,15 @@ CardDemo overstatement recomputed from the tool's own output.
 
 ### Known, and stated rather than hidden
 
-- A binary column that uses its full range at both ends gives no byte-order
-  signal; `BINARY_BYTE_ORDER` stays silent rather than guessing.
+- One binary case is genuinely undetectable: a field **declared `COMP-5`** whose
+  values span its **full** binary range, read in the wrong byte order. The PIC
+  permits the range so nothing is out of bounds, and both bytes are near-uniform
+  so there is no narrow end to read the order from — `0x1234` and `0x3412` are
+  both ordinary integers. `BINARY_BYTE_ORDER` stays silent rather than guessing.
+  Everything around it is still covered: clustered values (nearly all business
+  data) are detected in both directions, and a full-range field declared plain
+  `COMP` raises `BINARY_EXCEEDS_PIC` whichever way it is read. Recourse is
+  `--binary-byteorder`, which needs knowledge the file does not carry.
 - A float column whose values all sit inside one binade cannot be told apart, in
   either format. The tool reports `FLOAT_FORMAT_UNDECIDABLE`.
 
