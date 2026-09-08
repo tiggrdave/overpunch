@@ -220,13 +220,13 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 317 passed, 11 skipped on a cold clone
-                   # 341 passed once scripts/fetch_carddemo.py has run
+make test          # 329 passed, 11 skipped on a cold clone
+                   # 353 passed once scripts/fetch_carddemo.py has run
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 52 tests with *"run
+first. Bare `pytest` on a fresh clone skips 55 tests with *"run
 build_samples.py to generate the corpus"*, which looks alarming and is not. The
 counts above were measured on a cold clone, not in the working tree - the two
 disagree, because the working tree has fixtures a clone does not.
@@ -519,7 +519,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-352 tests with the real-world fixtures fetched, 328 without, in five kinds:
+364 tests with the real-world fixtures fetched, 340 without, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|
@@ -831,6 +831,24 @@ agree on all 200 — including the 66 negatives. That is agreement about somethi
 neither of them invented.
 
 It is skipped, not failed, when `cobc` is absent (`sudo apt-get install gnucobol`).
+
+## Before publishing, run it from a clone and not from the tree
+
+```bash
+python scripts/regress.py           # cold anonymous clone, fresh venv, everything
+```
+
+The working tree and a clone are not the same repository, and three real defects
+have only ever been visible from the clone: `make test` reporting **`1 failed`**
+on every cold clone, because a test read a fixture the Makefile does not fetch
+and had no skip guard; `make verify-js` printing **`0 disagreements` while
+comparing 11 of the 12 files**, because a generated demo file was missing and the
+absence was silent; and the README's own test counts, transcribed from a tree
+that has fixtures a clone does not.
+
+It asserts on parsed counts with floors, never on exit codes and never on the
+absence of the word "failed" — the version of this script that did the latter
+once reported "zero failures" when pytest was not installed and had never run.
 
 ## Two implementations, held to the same answers
 

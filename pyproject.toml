@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overpunch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Decode mainframe fixed-width extracts from their COBOL copybooks, and find the traps that silently corrupt them."
 readme = "README.md"
 requires-python = ">=3.10"
