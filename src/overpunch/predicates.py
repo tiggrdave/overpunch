@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .decode import FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR
+from .decode import (FLOAT_BYTEORDER_RATIO, FLOAT_EXPONENT_SPREAD,
+                     FLOAT_SAMPLE_FLOOR)
 from .layout import Field, Usage
 from .probe import FieldStats
 
@@ -100,20 +101,74 @@ def float_evidence(fld: Field, st: FieldStats) -> str | None:
     return None
 
 
+def float_byteorder(fld: Field, st: FieldStats) -> str | None:
+    """"big" | "little" | None - which end of the field holds the exponent.
+
+    Only meaningful once the format is known to be IEEE; hex float is a
+    mainframe format and is always big-endian. Decided by entropy, not by
+    plausibility: the exponent end of a real column takes few distinct byte
+    values because business magnitudes cluster, while the low mantissa end takes
+    many. Verified against a file a real compiler produced - GnuCOBOL on x86
+    writes native order, and the tool called the format right and the byte order
+    wrong, returning 1.16e-53 for 1.727 while reporting CONFIRMED.
+    """
+    head, tail = len(st.float_head_bytes), len(st.float_tail_bytes)
+    if not head or not tail:
+        return None
+    if tail * FLOAT_BYTEORDER_RATIO <= head:
+        return "little"
+    if head * FLOAT_BYTEORDER_RATIO <= tail:
+        return "big"
+    return None
+
+
+def float_reading(st: FieldStats) -> tuple[str, str | None]:
+    """The reading in force, split into (format, byte order)."""
+    if st.float_format == "ieee-le":
+        return "ieee", "little"
+    if st.float_format == "ieee":
+        return "ieee", "big"
+    return "hfp", None
+
+
 def float_format_contradicted(fld: Field, st: FieldStats) -> bool:
-    """The bytes say one format and the column is being read as the other."""
+    """The bytes disagree with the reading in force - on format, or on byte order.
+
+    Byte order counts. Getting the format right and the order wrong is not a
+    near miss: it is a different number, returned with no complaint.
+    """
     ev = float_evidence(fld, st)
-    return bool(ev and ev != st.float_format)
+    if not ev:
+        return False
+    fmt, order = float_reading(st)
+    if ev != fmt:
+        return True
+    if ev == "ieee":
+        observed = float_byteorder(fld, st)
+        return bool(observed and observed != order)
+    return False
 
 
 def float_format_confirmed(fld: Field, st: FieldStats) -> bool:
-    return float_evidence(fld, st) == st.float_format
+    """Both the format AND, for IEEE, the byte order are supported by the bytes."""
+    ev = float_evidence(fld, st)
+    fmt, order = float_reading(st)
+    if ev != fmt:
+        return False
+    if ev == "ieee":
+        return float_byteorder(fld, st) == order
+    return True
 
 
 def float_format_undecidable(fld: Field, st: FieldStats) -> bool:
     """Not enough values, or all one magnitude, for absence to be evidence."""
-    return bool(fld.usage in (Usage.COMP1, Usage.COMP2) and st.float_nonzero
-                and float_evidence(fld, st) is None)
+    if fld.usage not in (Usage.COMP1, Usage.COMP2) or not st.float_nonzero:
+        return False
+    ev = float_evidence(fld, st)
+    if ev is None:
+        return True
+    # format settled, byte order not - still not a confirmation
+    return ev == "ieee" and float_byteorder(fld, st) is None
 
 
 def never_populated(fld: Field, st: FieldStats) -> bool:

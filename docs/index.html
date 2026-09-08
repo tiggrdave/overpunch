@@ -1065,7 +1065,27 @@ function isAsciiPage(){ return CP037 && CP037.charAt(0x30) === "0"; }
    The absence of one only means something if it COULD have appeared: a column
    whose values all sit inside one binade shares a single exponent byte, and
    then neither format produces one. Hence the spread gate. */
-var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2;
+var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2, FLOAT_BYTEORDER_RATIO = 2;
+
+/* Byte order is a SECOND unknown. In IEEE the sign and exponent sit at one end
+   and the low mantissa bits at the other; business magnitudes cluster, so the
+   exponent end takes few distinct byte values and the mantissa end takes many.
+   Measured on a file GnuCOBOL 3.1.2 actually produced on x86: first byte 143
+   distinct, last byte 3. Getting the format right and the order wrong returns
+   1.16e-53 where the value is 1.727, with no complaint. */
+function floatByteorder(st){
+  var head = Object.keys(st.floatHeadBytes).length,
+      tail = Object.keys(st.floatTailBytes).length;
+  if(!head || !tail) return null;
+  if(tail * FLOAT_BYTEORDER_RATIO <= head) return "little";
+  if(head * FLOAT_BYTEORDER_RATIO <= tail) return "big";
+  return null;
+}
+function floatReading(st){
+  if(st.floatFormat === "ieee-le") return {fmt:"ieee", order:"little"};
+  if(st.floatFormat === "ieee")    return {fmt:"ieee", order:"big"};
+  return {fmt:"hfp", order:null};
+}
 
 function isUnnormalisedHfp(bytes, at, len){
   if(len < 2) return false;
@@ -1122,6 +1142,8 @@ function observe(st, f, bytes, off){
     if(anyByte){
       st.floatNonzero++;
       st.floatExponents[bytes[fat] & 0x7F] = true;
+      st.floatHeadBytes[bytes[fat]] = true;
+      st.floatTailBytes[bytes[fat + len - 1]] = true;
       if(isUnnormalisedHfp(bytes, fat, len)) st.floatUnnormalised++;
     }
     st.sumCorrect += decodeHexFloat(bytes, off + f.offset, len);
@@ -1246,7 +1268,7 @@ function scan(layout, bytes, limit){
                      positive:0, widest:0, distinct:{}, undecodable:0,
                      invalidPacked:0, unknownSign:0, unknownSignBytes:{},
                      floatNonzero:0, floatUnnormalised:0, floatExponents:{},
-                     floatFormat:"hfp",
+                     floatHeadBytes:{}, floatTailBytes:{}, floatFormat:"hfp",
                      sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
   for(var r = 0; r < n; r++){
@@ -1324,40 +1346,56 @@ function findings(layout, res){
         records:st.examined});
     }
     if(f.usage === "COMP-1" || f.usage === "COMP-2"){
-      var ev = floatEvidence(st), spread = Object.keys(st.floatExponents).length;
-      if(ev && ev !== st.floatFormat){
-        var wrong = st.floatFormat === "ieee" ? "IEEE 754" : "IBM hexadecimal",
-            right = st.floatFormat === "ieee" ? "IBM hexadecimal" : "IEEE 754",
-            other = st.floatFormat === "ieee" ? "hfp" : "ieee";
+      var ev = floatEvidence(st), spread = Object.keys(st.floatExponents).length,
+          rd = floatReading(st), order = floatByteorder(st),
+          heads = Object.keys(st.floatHeadBytes).length,
+          tails = Object.keys(st.floatTailBytes).length,
+          NAMES = {hfp:"IBM hexadecimal float", ieee:"big-endian IEEE 754",
+                   "ieee-le":"little-endian IEEE 754"},
+          contradicted = ev && (ev !== rd.fmt ||
+                                (ev === "ieee" && order && order !== rd.order)),
+          confirmed = ev === rd.fmt &&
+                      (ev !== "ieee" || order === rd.order);
+      if(contradicted){
+        var want = ev === "hfp" ? "hfp" : (order === "little" ? "ieee-le" : "ieee");
         out.push({code:"FLOAT_FORMAT_MISMATCH", severity:"critical", field:f.name,
-          claim:"this column is being read as "+wrong+" float, and the bytes say it is "+
-                right+"; nothing in a COMP-1/COMP-2 field records which one wrote it, "+
-                "so it has to be measured",
+          claim:"this column is being read as "+NAMES[st.floatFormat]+", and the bytes "+
+                "say it is "+NAMES[want]+"; nothing in a COMP-1/COMP-2 field records "+
+                "which one wrote it - not the format and not the byte order - so both "+
+                "are measured",
           evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
                     unnormalisable_as_hex_float:st.floatUnnormalised.toLocaleString(),
                     share:pct(st.floatUnnormalised, st.floatNonzero),
+                    distinct_first_byte:String(heads),
+                    distinct_last_byte:String(tails),
                     reading_in_force:st.floatFormat},
           records:st.examined,
-          impact:"a normalised IBM hex float cannot have a zero leading fraction nibble; "+
-                 "re-read with --float-format "+other+". The wrong reading does not fail "+
-                 "- it returns ordinary numbers, off by orders of magnitude"});
-      } else if(ev === st.floatFormat){
+          impact:"re-read with --float-format "+want+". The wrong reading does not fail "+
+                 "- it returns ordinary numbers, off by orders of magnitude. A real "+
+                 "compiler proved this: GnuCOBOL on x86 wrote 1.72708 as 15 11 dd 3f, "+
+                 "which read big-endian is 2.9457e-26"});
+      } else if(confirmed){
         out.push({code:"FLOAT_FORMAT_CONFIRMED", severity:"info", field:f.name,
-          claim:"read as "+st.floatFormat+", and the bytes support it - this was measured "+
-                "over the column, not assumed from a default",
+          claim:"read as "+st.floatFormat+", and the bytes support it - both the format "+
+                "and the byte order were measured over the column, not assumed from a "+
+                "default",
           evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
                     unnormalisable_as_hex_float:st.floatUnnormalised.toLocaleString(),
-                    distinct_magnitudes:String(spread)},
+                    distinct_magnitudes:String(spread),
+                    distinct_first_byte:String(heads),
+                    distinct_last_byte:String(tails)},
           records:st.examined});
       } else if(st.floatNonzero){
         out.push({code:"FLOAT_FORMAT_UNDECIDABLE", severity:"warn", field:f.name,
-          claim:"this column cannot settle whether it is IBM hexadecimal float or IEEE 754, "+
-                "so the reading in force ("+st.floatFormat+") remains a default, not a "+
-                "measurement",
+          claim:"this column cannot settle its floating-point format, or which end of it "+
+                "holds the exponent, so the reading in force ("+st.floatFormat+") remains "+
+                "a default, not a measurement",
           evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
                     needed:FLOAT_SAMPLE_FLOOR.toLocaleString(),
                     distinct_magnitudes:String(spread),
-                    needed_magnitudes:String(FLOAT_EXPONENT_SPREAD)},
+                    needed_magnitudes:String(FLOAT_EXPONENT_SPREAD),
+                    distinct_first_byte:String(heads),
+                    distinct_last_byte:String(tails)},
           records:st.examined,
           impact:"a true IEEE column shows values that cannot be normalised hex float at "+
                  "4.35% (4-byte) or 26.15% (8-byte) - but only when the values span more "+

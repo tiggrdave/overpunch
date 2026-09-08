@@ -156,5 +156,18 @@
     "note": "the discrimination pair for float-hex: same values, same copybook, one byte-level difference",
     "copybook": "float-ieee.cpy",
     "data": "float-ieee.dat"
+  },
+  {
+    "name": "float-ieee-le",
+    "why": "little-endian IEEE 754, which is what a PC COBOL compiler writes; the format and the byte order are two separate unknowns",
+    "encoding": "cp037",
+    "expect": [
+      "FLOAT_FORMAT_MISMATCH"
+    ],
+    "record_bytes": 18,
+    "records": 120,
+    "note": "read as big-endian IEEE this still returns finite numbers",
+    "copybook": "float-ieee-le.cpy",
+    "data": "float-ieee-le.dat"
   }
 ]

@@ -353,31 +353,57 @@ def hfp_leading_nibble(raw: bytes) -> int:
     return (raw[1] >> 4) if len(raw) >= 2 else 0
 
 
-def decode_ieee_float(raw: bytes) -> Decimal:
-    """IEEE 754 binary32/binary64, big-endian - the OTHER thing 4 or 8 bytes may be.
+def decode_ieee_float(raw: bytes, little: bool = False) -> Decimal:
+    """IEEE 754 binary32/binary64 - the OTHER thing 4 or 8 bytes may be.
 
-    A compiler option emits these instead of IBM hexadecimal float, and nothing
-    in the bytes says which. See `float_format_evidence` for how the column as a
-    whole settles it.
+    Byte order is a second, independent unknown. A mainframe writes network
+    order; GnuCOBOL on x86 writes NATIVE order, verified by compiling a program
+    and looking at the bytes it produced: 1.72708 came out as 15 11 dd 3f, which
+    read big-endian is 2.9457e-26. Getting the format right and the byte order
+    wrong still returns a confident number.
     """
     import struct
     if len(raw) not in (4, 8):
         raise DecodeError(f"IEEE float must be 4 or 8 bytes, got {len(raw)}")
-    value = struct.unpack(">f" if len(raw) == 4 else ">d", raw)[0]
+    code = ("<" if little else ">") + ("f" if len(raw) == 4 else "d")
+    value = struct.unpack(code, raw)[0]
     if value != value or value in (float("inf"), float("-inf")):
         raise DecodeError("not a finite IEEE value")
     return Decimal(repr(value))
 
 
-def encode_ieee_float(value: Decimal, width: int = 4) -> bytes:
+def encode_ieee_float(value: Decimal, width: int = 4,
+                      little: bool = False) -> bytes:
     """Inverse of decode_ieee_float, for building fixtures."""
     import struct
-    return struct.pack(">f" if width == 4 else ">d", float(value))
+    return struct.pack(("<" if little else ">") + ("f" if width == 4 else "d"),
+                       float(value))
+
+
+FLOAT_FORMATS = ("hfp", "ieee", "ieee-le")
 
 
 def decode_float(raw: bytes, float_format: str = "hfp") -> Decimal:
-    return (decode_ieee_float(raw) if float_format == "ieee"
-            else decode_hex_float(raw))
+    if float_format == "ieee":
+        return decode_ieee_float(raw, little=False)
+    if float_format == "ieee-le":
+        return decode_ieee_float(raw, little=True)
+    return decode_hex_float(raw)
+
+
+# How lopsided the two ends of the field must be before byte order is decided.
+# In IEEE the sign and exponent live at one end and the low mantissa bits at the
+# other. Business values cluster in a narrow band of magnitudes, so the exponent
+# end takes FEW distinct byte values and the mantissa end takes many. Measured
+# over 200 records:
+#
+#   real GnuCOBOL COMP-2 (x86)   first byte 143 distinct   last byte   3 distinct
+#   real GnuCOBOL COMP-1 (x86)   first byte 139 distinct   last byte  11 distinct
+#   big-endian fixtures          first byte   2 distinct   last byte  25 distinct
+#
+# The low-entropy end is the exponent end. A factor of two is far inside every
+# margin measured and still refuses a column with no spread at all.
+FLOAT_BYTEORDER_RATIO = 2
 
 
 def is_unnormalised_hfp(raw: bytes) -> bool:

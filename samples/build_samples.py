@@ -299,6 +299,22 @@ def build_float_hfp():
            note="measured, not assumed: 0 of 120 values are unnormalisable")
 
 
+def build_float_ieee_le():
+    """What GnuCOBOL on x86 actually writes - verified by compiling one.
+
+    Same format as float-ieee, opposite byte order. The tool used to call the
+    format right and the order wrong and report CONFIRMED, returning 1.16e-53
+    where the value was 1.727.
+    """
+    sample("float-ieee-le",
+           "little-endian IEEE 754, which is what a PC COBOL compiler writes; "
+           "the format and the byte order are two separate unknowns",
+           FLOAT_CPY,
+           _float_records(lambda v, w: encode_ieee_float(v, w, little=True)),
+           expect=["FLOAT_FORMAT_MISMATCH"], record_bytes=18, records=120,
+           note="read as big-endian IEEE this still returns finite numbers")
+
+
 def build_float_ieee():
     """The same numbers, the other format, and nothing in the bytes says so.
 
@@ -319,7 +335,7 @@ def main() -> None:
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
                build_wrong_copybook, build_variable_blocked, build_blank,
                build_unset, build_range, build_ascii_zoned,
-               build_float_hfp, build_float_ieee):
+               build_float_hfp, build_float_ieee, build_float_ieee_le):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

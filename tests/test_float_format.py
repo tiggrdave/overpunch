@@ -200,7 +200,48 @@ def test_an_all_zero_column_says_nothing_either_way(tmp_path):
         assert code not in found, code
 
 
+# --- byte order is a second, independent unknown ---------------------------
+
+def le(v, w):
+    return encode_ieee_float(v, w, little=True)
+
+
+def test_the_byte_order_a_real_compiler_wrote():
+    """GnuCOBOL 3.1.2 on x86-64 wrote 1.72708 as these eight bytes.
+
+    Not a fixture this project generated - copied from the output of a compiled
+    COBOL program. Read big-endian it is 5.05e+25, and nothing complains.
+    """
+    raw = bytes.fromhex("4544e79e22a2fb3f")
+    assert decode_ieee_float(raw, little=True) == Decimal("1.727083798137998")
+    assert decode_ieee_float(raw) > Decimal("1e25")
+
+
+def test_little_endian_read_as_big_endian_is_caught(tmp_path):
+    assert "FLOAT_FORMAT_MISMATCH" in codes(tmp_path, le, fmt="ieee")
+
+
+def test_little_endian_read_correctly_is_confirmed(tmp_path):
+    found = codes(tmp_path, le, fmt="ieee-le")
+    assert "FLOAT_FORMAT_CONFIRMED" in found
+    assert "FLOAT_FORMAT_MISMATCH" not in found
+
+
+def test_big_endian_read_as_little_endian_is_caught(tmp_path):
+    """The other half - the rule must not simply always say 'little'."""
+    assert "FLOAT_FORMAT_MISMATCH" in codes(
+        tmp_path, encode_ieee_float, fmt="ieee-le")
+
+
+def test_hex_float_is_not_accused_of_byte_order(tmp_path):
+    """Hex float is a mainframe format; byte order is not a question for it."""
+    found = codes(tmp_path, encode_hex_float, fmt="hfp")
+    assert "FLOAT_FORMAT_CONFIRMED" in found
+    assert "FLOAT_FORMAT_MISMATCH" not in found
+
+
 def test_decode_float_dispatches(tmp_path):
     v = Decimal("1234.5")
     assert decode_float(encode_hex_float(v, 4), "hfp") == v
     assert decode_float(encode_ieee_float(v, 4), "ieee") == v
+    assert decode_float(encode_ieee_float(v, 4, little=True), "ieee-le") == v

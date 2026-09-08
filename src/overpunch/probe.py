@@ -12,7 +12,8 @@ from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
-from .decode import (FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR, DecodeError,
+from .decode import (FLOAT_BYTEORDER_RATIO, FLOAT_EXPONENT_SPREAD,
+                     FLOAT_SAMPLE_FLOOR, DecodeError,
                      ascii_zone_sign, decode_binary, decode_display,
                      decode_display_naive, decode_float, decode_packed,
                      decode_text, hfp_exponent_byte, is_ascii_page,
@@ -118,6 +119,8 @@ class FieldStats:
     float_nonzero: int = 0          # COMP-1/COMP-2 values that are not all-zero
     float_unnormalised: int = 0     # ...of those, how many HFP cannot produce
     float_exponents: set = dc_field(default_factory=set)  # magnitudes seen
+    float_head_bytes: set = dc_field(default_factory=set)  # byte 0, all records
+    float_tail_bytes: set = dc_field(default_factory=set)  # byte -1, all records
     float_format: str = "hfp"       # the reading that was in force
     max_significant_digits: int = 0
     distinct: Counter = dc_field(default_factory=Counter)
@@ -364,6 +367,10 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str,
         if any(raw):
             st.float_nonzero += 1
             st.float_exponents.add(hfp_exponent_byte(raw))
+            # the two ends, for byte order: the exponent end is the one with
+            # few distinct values, because real magnitudes cluster
+            st.float_head_bytes.add(raw[0])
+            st.float_tail_bytes.add(raw[-1])
             if is_unnormalised_hfp(raw):
                 st.float_unnormalised += 1
         st.float_format = float_format

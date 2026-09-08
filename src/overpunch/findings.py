@@ -123,45 +123,58 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
             records=st.examined))
 
     if pred.float_format_contradicted(fld, st):
-        wrong, right = ((("IEEE 754"), "IBM hexadecimal")
-                        if st.float_format == "ieee"
-                        else ("IBM hexadecimal", "IEEE 754"))
+        ev = pred.float_evidence(fld, st)
+        order = pred.float_byteorder(fld, st)
+        want = {"hfp": "hfp", ("ieee", "big"): "ieee",
+                ("ieee", "little"): "ieee-le"}.get(
+                    "hfp" if ev == "hfp" else (ev, order), "ieee")
+        names = {"hfp": "IBM hexadecimal float", "ieee": "big-endian IEEE 754",
+                 "ieee-le": "little-endian IEEE 754"}
         out.append(Finding(
             code="FLOAT_FORMAT_MISMATCH", severity="critical", field=fld.name,
-            claim=(f"this column is being read as {wrong} float, and the bytes "
-                   f"say it is {right}; nothing in a COMP-1/COMP-2 field "
-                   f"records which one wrote it, so it has to be measured"),
+            claim=(f"this column is being read as {names[st.float_format]}, and "
+                   f"the bytes say it is {names[want]}; nothing in a "
+                   f"COMP-1/COMP-2 field records which one wrote it - not the "
+                   f"format and not the byte order - so both are measured"),
             evidence={"non_zero_values": f"{st.float_nonzero:,}",
                       "unnormalisable_as_hex_float": f"{st.float_unnormalised:,}",
                       "share": _pct(st.float_unnormalised, st.float_nonzero),
+                      "distinct_first_byte": f"{len(st.float_head_bytes)}",
+                      "distinct_last_byte": f"{len(st.float_tail_bytes)}",
                       "reading_in_force": st.float_format},
             records=st.examined,
-            impact=(f"a normalised IBM hex float cannot have a zero leading "
-                    f"fraction nibble; re-read with --float-format "
-                    f"{'hfp' if st.float_format == 'ieee' else 'ieee'}. The "
-                    f"wrong reading does not fail - it returns ordinary "
-                    f"numbers, off by orders of magnitude")))
+            impact=(f"re-read with --float-format {want}. The wrong reading "
+                    f"does not fail - it returns ordinary numbers, off by "
+                    f"orders of magnitude. A real compiler proved this: "
+                    f"GnuCOBOL on x86 wrote 1.72708 as 15 11 dd 3f, which read "
+                    f"big-endian is 2.9457e-26")))
 
     if pred.float_format_confirmed(fld, st):
         out.append(Finding(
             code="FLOAT_FORMAT_CONFIRMED", severity="info", field=fld.name,
-            claim=(f"read as {st.float_format}, and the bytes support it - this "
-                   f"was measured over the column, not assumed from a default"),
+            claim=(f"read as {st.float_format}, and the bytes support it - both "
+                   f"the format and the byte order were measured over the "
+                   f"column, not assumed from a default"),
             evidence={"non_zero_values": f"{st.float_nonzero:,}",
                       "unnormalisable_as_hex_float": f"{st.float_unnormalised:,}",
-                      "distinct_magnitudes": f"{len(st.float_exponents)}"},
+                      "distinct_magnitudes": f"{len(st.float_exponents)}",
+                      "distinct_first_byte": f"{len(st.float_head_bytes)}",
+                      "distinct_last_byte": f"{len(st.float_tail_bytes)}"},
             records=st.examined))
 
     if pred.float_format_undecidable(fld, st):
         out.append(Finding(
             code="FLOAT_FORMAT_UNDECIDABLE", severity="warn", field=fld.name,
-            claim=(f"this column cannot settle whether it is IBM hexadecimal "
-                   f"float or IEEE 754, so the reading in force "
-                   f"({st.float_format}) remains a default, not a measurement"),
+            claim=(f"this column cannot settle its floating-point format, or "
+                   f"which end of it holds the exponent, so the reading in "
+                   f"force ({st.float_format}) remains a default, not a "
+                   f"measurement"),
             evidence={"non_zero_values": f"{st.float_nonzero:,}",
                       "needed": f"{pred.FLOAT_SAMPLE_FLOOR:,}",
                       "distinct_magnitudes": f"{len(st.float_exponents)}",
-                      "needed_magnitudes": f"{pred.FLOAT_EXPONENT_SPREAD}"},
+                      "needed_magnitudes": f"{pred.FLOAT_EXPONENT_SPREAD}",
+                      "distinct_first_byte": f"{len(st.float_head_bytes)}",
+                      "distinct_last_byte": f"{len(st.float_tail_bytes)}"},
             records=st.examined,
             impact=("a true IEEE column shows values that cannot be normalised "
                     "hex float at 4.35% (4-byte) or 26.15% (8-byte) - but only "

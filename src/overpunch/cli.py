@@ -420,11 +420,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
-    p.add_argument("--float-format", choices=["hfp", "ieee"], default="hfp",
+    p.add_argument("--float-format", choices=["hfp", "ieee", "ieee-le"],
+                   default="hfp",
                    help="how to read COMP-1/COMP-2: IBM hexadecimal float "
-                        "(default) or IEEE 754. Nothing in the bytes records "
-                        "which; scan measures the column and says if the "
-                        "reading is contradicted")
+                        "(default), big-endian IEEE 754, or little-endian IEEE "
+                        "754 as GnuCOBOL and other PC compilers write it. "
+                        "Nothing in the bytes records the format OR the byte "
+                        "order; scan measures both and says so")
     p.add_argument("--record-bytes", type=int,
                    help="override the record length when the copybook is "
                         "only a view of a longer record")
@@ -438,11 +440,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
-    p.add_argument("--float-format", choices=["hfp", "ieee"], default="hfp",
+    p.add_argument("--float-format", choices=["hfp", "ieee", "ieee-le"],
+                   default="hfp",
                    help="how to read COMP-1/COMP-2: IBM hexadecimal float "
-                        "(default) or IEEE 754. Nothing in the bytes records "
-                        "which; scan measures the column and says if the "
-                        "reading is contradicted")
+                        "(default), big-endian IEEE 754, or little-endian IEEE "
+                        "754 as GnuCOBOL and other PC compilers write it. "
+                        "Nothing in the bytes records the format OR the byte "
+                        "order; scan measures both and says so")
     p.add_argument("--record-bytes", type=int,
                    help="override the record length when the copybook is "
                         "only a view of a longer record")

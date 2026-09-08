@@ -49,6 +49,9 @@ PAIRS = [
     # both. Without these the float rules are cross-checked by nothing at all.
     ("samples/data/float-hex.cpy", "samples/data/float-hex.dat"),
     ("samples/data/float-ieee.cpy", "samples/data/float-ieee.dat"),
+    # ...and the byte order, which is a second unknown the browser must also get
+    # right. A real compiler (GnuCOBOL on x86) writes this one.
+    ("samples/data/float-ieee-le.cpy", "samples/data/float-ieee-le.dat"),
 ]
 LIMIT = 300
 
