@@ -49,7 +49,7 @@ mainframe extract is a plausible wrong number**, not a crash.
 ```bash
 overpunch layout  UTLBILL.cpy                 # what the copybook says the record is
 overpunch scan    UTLBILL.cpy UTLBILL.dat      # measure the file against it
-overpunch decode  UTLBILL.cpy UTLBILL.dat -o out.parquet
+overpunch decode  UTLBILL.cpy UTLBILL.dat -o out.parquet   # scans first, then writes
 overpunch explain UTLBILL.cpy UTLBILL.dat      # Nemotron proposes, the bytes dispose
 ```
 
@@ -59,6 +59,16 @@ arithmetic — the correct total beside the wrong one. `scan` refuses to report
 anything at all if the file is not a whole multiple of the copybook's record
 length, because in that case the copybook does not describe the file and nothing
 downstream of that would be trustworthy.
+
+`decode` runs that same scan before it writes anything, and **stops on a
+critical finding**. It used to write the file without ever calling `scan`, which
+meant the one command producing something a database would load was the one
+command running none of the checks: a file `scan` calls `INVALID_PACKED` in 25%
+of its records decoded to `121122123124125.12` in the extract, silently. `--force`
+writes it anyway — a finding is evidence, and the operator may know something the
+bytes do not carry — but it has to be asked for, and the values that cannot be
+read stay **empty and counted**, never a plausible number. A layout mismatch is
+not forceable: there are no records there to decode.
 
 ## The model layer, and why it cannot lie to you
 
@@ -210,12 +220,12 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 289 passed, 10 skipped
+make test          # 311 passed, 10 skipped
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 42 tests with *"run
+first. Bare `pytest` on a fresh clone skips 47 tests with *"run
 build_samples.py to generate the corpus"*, which looks alarming and is not.
 
 For the `explain` step, a free key from [build.nvidia.com](https://build.nvidia.com)
@@ -506,7 +516,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-289 tests, in five kinds:
+311 tests, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|
@@ -566,6 +576,14 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
   are not yet unpacked per-record.
 - Choosing which `REDEFINES` branch is live still needs a discriminator rule the
   tool does not yet ask for.
+- `COMP-5` / `COMP-X` (native-endian binary) are not modelled. `COMP` is read
+  big-endian, which is right on a mainframe and on Micro Focus by default, but a
+  `COMP-5` field from a little-endian platform would be read byte-reversed. It
+  is not detected, so this is a real hole and not a warning the tool gives you.
+- `COMP-1` / `COMP-2` are read as IBM hexadecimal floating point. A compiler
+  option can emit IEEE 754 instead and **nothing in the bytes distinguishes
+  them** — this is the one place the tool asserts a default rather than
+  measuring, and it is stated here rather than hidden in a docstring.
 
 ## Prove the method on a sample, then run it where the file lives
 

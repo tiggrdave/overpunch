@@ -222,15 +222,41 @@ def decode_display_naive(raw: bytes, pic: Picture, encoding: str = "cp037") -> D
 
 
 def decode_packed(raw: bytes, scale: int = 0) -> Decimal:
-    """COMP-3 packed decimal: two digits per byte, sign in the final low nibble."""
+    """COMP-3 packed decimal: two digits per byte, sign in the final low nibble.
+
+    Every digit nibble must be 0-9 and the final low nibble must be a sign
+    (0xA-0xF; 0xF is how an unsigned COMP-3 field is written). Anything else is
+    not packed decimal and raises, because the alternative is worse than an
+    error: str() on a nibble of 0xF emits "15" straight into the digit string,
+    so three junk bytes used to return 1,515,151,515 - a confident number, from
+    bytes that are not a number at all. That is the precise failure this project
+    exists to catch, and it was reachable through `overpunch decode`.
+
+    `probe` validates the nibbles before calling this, so the scan path never
+    reaches the raise; `decode` had no such guard and wrote the corruption into
+    the extract.
+    """
+    if not raw:
+        return Decimal(0)
     digits = []
+    last = len(raw) - 1
     for i, byte in enumerate(raw):
         hi, lo = byte >> 4, byte & 0x0F
-        if i == len(raw) - 1:
-            digits.append(str(hi))
+        if hi > 9:
+            raise DecodeError(
+                f"byte {i} of {len(raw)} has digit nibble 0x{hi:X}: not packed decimal")
+        digits.append(str(hi))
+        if i == last:
+            if lo < 0x0A:
+                raise DecodeError(
+                    f"final low nibble 0x{lo:X} is a digit, not a sign: "
+                    f"not packed decimal")
             sign = -1 if lo in (0x0B, 0x0D) else 1
         else:
-            digits.append(str(hi))
+            if lo > 9:
+                raise DecodeError(
+                    f"byte {i} of {len(raw)} has digit nibble 0x{lo:X}: "
+                    f"not packed decimal")
             digits.append(str(lo))
     value = Decimal("".join(digits) or "0") * sign
     return value.scaleb(-scale) if scale else value

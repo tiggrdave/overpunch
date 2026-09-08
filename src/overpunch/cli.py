@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .copybook import parse_file, parse_records
-from .decode import decode_field
+from .decode import DecodeError, decode_field
 from .explain import (DEFAULT_MODEL, NemotronError, adjudicate, build_prompt,
                       parse_hypotheses, profile, propose)
 from .benchmark import CANDIDATES, compare, table
@@ -121,11 +121,50 @@ def cmd_scan(args) -> int:
 
 
 def cmd_decode(args) -> int:
+    """Decode to Parquet or CSV - after checking, not instead of it.
+
+    `decode` used to parse the copybook and write the file, never calling
+    `scan`. So the one command that produces something downstream would consume
+    it was also the one command that ran none of the checks: a file `scan` calls
+    INVALID_PACKED in 25% of its records decoded to 121122123124125.12 in the
+    extract, silently. The tool refused in one breath and shipped the corruption
+    in the next.
+
+    Now it scans first and stops on anything critical. --force writes anyway,
+    because a finding is evidence and the operator may know something the bytes
+    do not carry - but it has to be asked for. A copybook that does not divide
+    the file is NOT forceable: there are no records to decode, only an offset
+    that happens to be arithmetic.
+    """
     layout = parse_file(args.copybook)
     if args.record_bytes:
         layout.record_bytes_override = args.record_bytes
+    try:
+        stats = scan(args.data, layout, encoding=args.encoding,
+                     limit=args.limit, recfm=getattr(args, "recfm", "auto"))
+    except LayoutMismatch as exc:
+        print(f"[CRITICAL] LAYOUT_MISMATCH\n    {exc}")
+        print("    this copybook does not describe this file; there is nothing "
+              "here to decode. Not overridable by --force.")
+        return 2
+    critical = [f for f in evaluate(layout, stats) if f.severity == "critical"]
+    if critical:
+        for f in critical:
+            print(f)
+            print()
+        if not args.force:
+            print(f"refusing to write {args.out}: {len(critical)} critical "
+                  f"finding(s) above.")
+            print("every row written from this file would carry them. Re-run "
+                  "with --force if that is what you want.")
+            return 2
+        print(f"--force given: writing {args.out} despite {len(critical)} "
+              f"critical finding(s).")
+        print()
+
     fields = [f for f in layout.elementary_fields() if not f.is_filler]
     columns: dict[str, list] = {f.name: [] for f in fields}
+    unreadable: dict[str, int] = {}
     n = 0
     for rec in iter_records(args.data, layout.record_length(),
                             recfm=getattr(args, 'recfm', 'auto')):
@@ -133,7 +172,13 @@ def cmd_decode(args) -> int:
             break
         for f in fields:
             raw = rec[f.offset:f.offset + f.total_size()]
-            columns[f.name].append(decode_field(raw, f, args.encoding))
+            try:
+                columns[f.name].append(decode_field(raw, f, args.encoding))
+            except DecodeError:
+                # an empty cell, never a plausible number. The count is printed
+                # below so nobody discovers the hole by reconciling a total.
+                columns[f.name].append(None)
+                unreadable[f.name] = unreadable.get(f.name, 0) + 1
         n += 1
 
     if args.out.endswith(".parquet"):
@@ -150,6 +195,9 @@ def cmd_decode(args) -> int:
             for i in range(n):
                 w.writerow([columns[k][i] for k in columns])
     print(f"wrote {n:,} records to {args.out}")
+    for name, count in sorted(unreadable.items()):
+        print(f"  {name}: {count:,} of {n:,} values left EMPTY - the bytes are "
+              f"not what the copybook says they are")
     return 0
 
 
@@ -385,6 +433,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--record-bytes", type=int,
                    help="override the record length when the copybook is "
                         "only a view of a longer record")
+    p.add_argument("--force", action="store_true",
+                   help="write the output even though the scan reported "
+                        "critical findings (a layout mismatch is never forced)")
     p.set_defaults(func=cmd_decode)
 
     p = sub.add_parser("explain",

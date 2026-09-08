@@ -64,13 +64,24 @@ function isUnset(t){
 /* COMP-3: two digits per byte, sign in the low nibble of the last one. The
    scanner used to check only that the nibbles were valid and never read the
    value, so scaled packed money reported a total of zero. */
+/* Returns null when the bytes are not packed decimal. String(hi) on a nibble
+   above 9 emits "10".."15" straight into the digit string, so three junk bytes
+   produced 1,515,151,515 - a confident number out of bytes that are not a
+   number. The scanner validates before calling this; the rendered table did
+   not, so the page showed it. */
 function decodePacked(bytes, off, len, scale){
   var digits = "", sign = 1;
   for(var i = 0; i < len; i++){
     var b = bytes[off + i], hi = b >> 4, lo = b & 15;
+    if(hi > 9) return null;
     digits += String(hi);
-    if(i === len - 1) sign = (lo === 0x0B || lo === 0x0D) ? -1 : 1;
-    else digits += String(lo);
+    if(i === len - 1){
+      if(lo < 0x0A) return null;             // a digit where the sign must be
+      sign = (lo === 0x0B || lo === 0x0D) ? -1 : 1;
+    } else {
+      if(lo > 9) return null;
+      digits += String(lo);
+    }
   }
   var v = parseInt(digits || "0", 10) * sign;
   return scale ? v / Math.pow(10, scale) : v;
@@ -158,8 +169,10 @@ function observe(st, f, bytes, off){
     }
     var lo = bytes[off+f.offset+len-1] & 15;
     if(lo !== 12 && lo !== 13 && lo !== 15) bad = true;
-    if(bad) st.invalidPacked++;
-    else st.sumCorrect += decodePacked(bytes, off + f.offset, len, f.pic.scale || 0);
+    var packedValue = bad ? null
+                          : decodePacked(bytes, off + f.offset, len, f.pic.scale || 0);
+    if(packedValue === null) st.invalidPacked++;
+    else st.sumCorrect += packedValue;
     return;
   }
   if(f.usage === "COMP"){
@@ -402,7 +415,10 @@ function readValue(f, bytes, off){
   if(f.usage === "COMP-1" || f.usage === "COMP-2")
     return String(Math.round(decodeHexFloat(bytes, at, len) * 1e6) / 1e6);
   if(!f.pic) return text(bytes, at, len);
-  if(f.usage === "COMP-3") return String(decodePacked(bytes, at, len, f.pic.scale || 0));
+  if(f.usage === "COMP-3"){
+    var packed = decodePacked(bytes, at, len, f.pic.scale || 0);
+    return packed === null ? "" : String(packed);   // empty, never a plausible number
+  }
   if(f.usage === "COMP"){
     var v = 0;
     for(var k = 0; k < len; k++) v = v * 256 + bytes[at + k];
