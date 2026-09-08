@@ -220,13 +220,13 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 358 passed, 11 skipped on a cold clone
-                   # 382 passed once scripts/fetch_carddemo.py has run
+make test          # 364 passed, 11 skipped on a cold clone
+                   # 388 passed once scripts/fetch_carddemo.py has run
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 61 tests with *"run
+first. Bare `pytest` on a fresh clone skips 64 tests with *"run
 build_samples.py to generate the corpus"*, which looks alarming and is not. The
 counts above were measured on a cold clone, not in the working tree - the two
 disagree, because the working tree has fixtures a clone does not.
@@ -519,7 +519,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-393 tests with the real-world fixtures fetched, 369 without, in five kinds:
+399 tests with the real-world fixtures fetched, 375 without, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|

@@ -372,13 +372,44 @@ def build_comp5_little():
            expect=["BINARY_BYTE_ORDER"], record_bytes=12, records=120)
 
 
+PARTLY_UNSET_CPY = """\
+000100* A coded field the source system sets only sometimes.
+000200 01  PARTIAL-REC.
+000300     05  PR-ID        PIC 9(05).
+000400     05  PR-STATUS    PIC X(01).
+000500         88  PR-OPEN      VALUE 'O'.
+000600         88  PR-CLOSED    VALUE 'C'.
+"""
+
+
+def build_partly_unset():
+    """Set in some records, low-values in the rest.
+
+    Distinct from `never-populated`, where the field is empty in EVERY record and
+    NEVER_POPULATED fires instead. Nothing in the corpus covered the in-between,
+    which is why a rule present in findings.py and absent from the browser copy
+    went unnoticed: the cross-check had no input that could tell them apart.
+    """
+    rng = random.Random(53)
+    out = bytearray()
+    for i in range(80):
+        out += f"{30000 + i:05d}".encode("cp037")
+        out += b"\x00" if i % 3 else rng.choice("OC").encode("cp037")
+    sample("partly-unset",
+           "a coded field set in some records and left as low-values in the rest",
+           PARTLY_UNSET_CPY, bytes(out), expect=["MOSTLY_UNSET"],
+           record_bytes=6, records=80,
+           note="the in-between case: not NEVER_POPULATED, not fully populated")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
                build_wrong_copybook, build_variable_blocked, build_blank,
                build_unset, build_range, build_ascii_zoned,
                build_float_hfp, build_float_ieee, build_float_ieee_le,
-               build_comp5_fullrange, build_comp5_little):
+               build_comp5_fullrange, build_comp5_little,
+               build_partly_unset):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

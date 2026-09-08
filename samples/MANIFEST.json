@@ -195,5 +195,18 @@
     "note": "",
     "copybook": "comp5-little.cpy",
     "data": "comp5-little.dat"
+  },
+  {
+    "name": "partly-unset",
+    "why": "a coded field set in some records and left as low-values in the rest",
+    "encoding": "cp037",
+    "expect": [
+      "MOSTLY_UNSET"
+    ],
+    "record_bytes": 6,
+    "records": 80,
+    "note": "the in-between case: not NEVER_POPULATED, not fully populated",
+    "copybook": "partly-unset.cpy",
+    "data": "partly-unset.dat"
   }
 ]

@@ -562,6 +562,19 @@ function findings(layout, res){
         evidence:{value:v, names:owner[v].join(", ")}, records:st?st.examined:0});
     });
     if(st){
+      /* A coded field left as low-values in SOME records - "not set" - but not
+         all of them. This rule existed in findings.py from the start and was
+         never ported here, and the cross-check could not see the gap because no
+         reference case had a partly-unset coded field. 17 of 18 rules matched;
+         this was the 18th. */
+      if(st.unset && st.examined && st.unset < st.examined){
+        out.push({code:"MOSTLY_UNSET", severity:"info", field:f.name,
+          claim:"this coded field carries no value in most records; low-values are how a "+
+                "mainframe says 'not set'",
+          evidence:{unset:st.unset.toLocaleString(), of:st.examined.toLocaleString(),
+                    share:pct(st.unset, st.examined)},
+          records:st.examined});
+      }
       var extra = {};
       Object.keys(st.distinct).forEach(function(v){
         var t = v.trim();

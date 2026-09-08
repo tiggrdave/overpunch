@@ -56,6 +56,9 @@ PAIRS = [
     # else can be compared, and the two tells.
     ("samples/data/comp5-fullrange.cpy", "samples/data/comp5-fullrange.dat"),
     ("samples/data/comp5-little.cpy", "samples/data/comp5-little.dat"),
+    # a coded field unset in SOME records: the only input that separates
+    # MOSTLY_UNSET from NEVER_POPULATED, and the corpus had none.
+    ("samples/data/partly-unset.cpy", "samples/data/partly-unset.dat"),
 ]
 LIMIT = 300
 
@@ -188,9 +191,20 @@ def main() -> None:
     out["types"] = types
     out["type_sources"] = type_sources
 
+    # The rule SET, not just the findings a corpus happens to produce. A rule
+    # present in one implementation and absent from the other is invisible to a
+    # finding-by-finding comparison unless some case triggers it - and
+    # MOSTLY_UNSET hid that way from the day it was written until 2026-09-08,
+    # because no reference file had a partly-unset coded field. This check needs
+    # no corpus case at all.
+    import re as _re
+    findings_src = (ROOT / "src" / "overpunch" / "findings.py").read_text()
+    out["rule_codes"] = sorted(set(_re.findall(r'code="([A-Z][A-Z_]+)"', findings_src)))
+
     dest = ROOT / "page" / "reference.json"
     dest.write_text(json.dumps(out))
-    print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases")
+    print(f"wrote {dest.relative_to(ROOT)} - {len(out['cases'])} cases, "
+          f"{len(out['rule_codes'])} rules")
     for miss in out.get("skipped", []):
         print(f"  !! SKIPPED {miss} - not on disk; the cross-check below will "
               f"compare LESS than the full corpus")

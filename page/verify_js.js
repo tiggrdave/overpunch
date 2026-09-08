@@ -32,6 +32,22 @@ const ref = JSON.parse(fs.readFileSync(refPath, "utf8"));
 
 let failures = 0, comparedFields = 0, comparedFindings = 0;
 
+// Rule-set parity, before any file is compared. A finding-by-finding comparison
+// only sees rules the corpus happens to trigger, so a rule ported to one side
+// and not the other stays invisible until someone's real file hits it.
+// MOSTLY_UNSET was exactly that: in findings.py from the start, never in
+// scan.js, and 0 disagreements reported for months.
+if (ref.rule_codes) {
+  const jsSrc = fs.readFileSync(path.join(here, "scan.js"), "utf8");
+  const jsRules = new Set([...jsSrc.matchAll(/code:"([A-Z][A-Z_]+)"/g)].map(m => m[1]));
+  const pyRules = new Set(ref.rule_codes);
+  for (const r of pyRules) if (!jsRules.has(r)) {
+    console.log(`  RULE ${r} exists in findings.py and NOT in scan.js`); failures++; }
+  for (const r of jsRules) if (!pyRules.has(r)) {
+    console.log(`  RULE ${r} exists in scan.js and NOT in findings.py`); failures++; }
+  console.log(`  rule sets: ${pyRules.size} python / ${jsRules.size} browser`);
+}
+
 // "0 disagreements" over a corpus that is missing cases is not agreement, it is
 // a smaller question. reference.py records what it could not find; refuse here
 // rather than printing a green line over it.

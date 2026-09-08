@@ -76,9 +76,9 @@ plausible wrong number, returned with no complaint.
 
 ### Verified
 
-382 passed / 11 skipped from a cold clone with the real-world fixtures fetched
-(358 without them); **0 disagreements** between the Python and browser
-implementations across 17 files; 10/10 against GnuCOBOL; and the headline 47%
+388 passed / 11 skipped from a cold clone with the real-world fixtures fetched
+(364 without them); **0 disagreements** between the Python and browser
+implementations across 18 files, plus rule-set parity (18 rules each side); 10/10 against GnuCOBOL; and the headline 47%
 CardDemo overstatement recomputed from the tool's own output.
 
 ### Known, and stated rather than hidden
