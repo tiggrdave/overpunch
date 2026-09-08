@@ -106,6 +106,38 @@ function zoneSign(byte){
    sign byte, or every ASCII numeric column would report as signed. */
 function isAsciiPage(){ return CP037 && CP037.charAt(0x30) === "0"; }
 
+/* Four or eight bytes of floating point are either IBM hexadecimal float or
+   IEEE 754, and nothing in the bytes says which. The wrong reading does not
+   fail - 161,916.39 written as IEEE and read as hex float comes back as
+   505,354,496.00 - so the column has to settle it.
+
+   IBM HFP keeps its fraction normalised, so the leading hex digit (high nibble
+   of byte 1) is never zero for a non-zero value. In IEEE that nibble is the
+   bottom of the exponent and the top of the mantissa, and it is zero 4.35% of
+   the time for binary32 and 26.15% for binary64. One such value refutes hex
+   float outright.
+
+   The absence of one only means something if it COULD have appeared: a column
+   whose values all sit inside one binade shares a single exponent byte, and
+   then neither format produces one. Hence the spread gate. */
+var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2;
+
+function isUnnormalisedHfp(bytes, at, len){
+  if(len < 2) return false;
+  var allZero = true;
+  for(var i = 0; i < len; i++) if(bytes[at+i]){ allZero = false; break; }
+  if(allZero) return false;
+  return (bytes[at+1] >> 4) === 0;
+}
+
+function floatEvidence(st){
+  if(!st.floatNonzero) return null;
+  if(st.floatUnnormalised) return "ieee";
+  if(st.floatNonzero >= FLOAT_SAMPLE_FLOOR &&
+     Object.keys(st.floatExponents).length >= FLOAT_EXPONENT_SPREAD) return "hfp";
+  return null;
+}
+
 function asciiZoneSign(byte){
   if(byte >= 0x70 && byte <= 0x79) return {s: -1, d: String(byte - 0x70)};
   if(byte >= 0x30 && byte <= 0x39) return {s:  1, d: String(byte - 0x30)};
@@ -140,6 +172,13 @@ function observe(st, f, bytes, off){
   st.examined++;
   var len = fieldLen(f);
   if(f.usage === "COMP-1" || f.usage === "COMP-2"){
+    var fat = off + f.offset, anyByte = false;
+    for(var q = 0; q < len; q++) if(bytes[fat+q]){ anyByte = true; break; }
+    if(anyByte){
+      st.floatNonzero++;
+      st.floatExponents[bytes[fat] & 0x7F] = true;
+      if(isUnnormalisedHfp(bytes, fat, len)) st.floatUnnormalised++;
+    }
     st.sumCorrect += decodeHexFloat(bytes, off + f.offset, len);
     return;
   }
@@ -261,6 +300,8 @@ function scan(layout, bytes, limit){
     stats[f.name] = {examined:0, blank:0, unset:0, allZero:0, nonDigitLast:0, negative:0,
                      positive:0, widest:0, distinct:{}, undecodable:0,
                      invalidPacked:0, unknownSign:0, unknownSignBytes:{},
+                     floatNonzero:0, floatUnnormalised:0, floatExponents:{},
+                     floatFormat:"hfp",
                      sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
   for(var r = 0; r < n; r++){
@@ -337,6 +378,49 @@ function findings(layout, res){
                   unset:st.unset.toLocaleString(), of:st.examined.toLocaleString()},
         records:st.examined});
     }
+    if(f.usage === "COMP-1" || f.usage === "COMP-2"){
+      var ev = floatEvidence(st), spread = Object.keys(st.floatExponents).length;
+      if(ev && ev !== st.floatFormat){
+        var wrong = st.floatFormat === "ieee" ? "IEEE 754" : "IBM hexadecimal",
+            right = st.floatFormat === "ieee" ? "IBM hexadecimal" : "IEEE 754",
+            other = st.floatFormat === "ieee" ? "hfp" : "ieee";
+        out.push({code:"FLOAT_FORMAT_MISMATCH", severity:"critical", field:f.name,
+          claim:"this column is being read as "+wrong+" float, and the bytes say it is "+
+                right+"; nothing in a COMP-1/COMP-2 field records which one wrote it, "+
+                "so it has to be measured",
+          evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
+                    unnormalisable_as_hex_float:st.floatUnnormalised.toLocaleString(),
+                    share:pct(st.floatUnnormalised, st.floatNonzero),
+                    reading_in_force:st.floatFormat},
+          records:st.examined,
+          impact:"a normalised IBM hex float cannot have a zero leading fraction nibble; "+
+                 "re-read with --float-format "+other+". The wrong reading does not fail "+
+                 "- it returns ordinary numbers, off by orders of magnitude"});
+      } else if(ev === st.floatFormat){
+        out.push({code:"FLOAT_FORMAT_CONFIRMED", severity:"info", field:f.name,
+          claim:"read as "+st.floatFormat+", and the bytes support it - this was measured "+
+                "over the column, not assumed from a default",
+          evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
+                    unnormalisable_as_hex_float:st.floatUnnormalised.toLocaleString(),
+                    distinct_magnitudes:String(spread)},
+          records:st.examined});
+      } else if(st.floatNonzero){
+        out.push({code:"FLOAT_FORMAT_UNDECIDABLE", severity:"warn", field:f.name,
+          claim:"this column cannot settle whether it is IBM hexadecimal float or IEEE 754, "+
+                "so the reading in force ("+st.floatFormat+") remains a default, not a "+
+                "measurement",
+          evidence:{non_zero_values:st.floatNonzero.toLocaleString(),
+                    needed:FLOAT_SAMPLE_FLOOR.toLocaleString(),
+                    distinct_magnitudes:String(spread),
+                    needed_magnitudes:String(FLOAT_EXPONENT_SPREAD)},
+          records:st.examined,
+          impact:"a true IEEE column shows values that cannot be normalised hex float at "+
+                 "4.35% (4-byte) or 26.15% (8-byte) - but only when the values span more "+
+                 "than one magnitude. Too few of them, or all inside one binade, and "+
+                 "NEITHER format produces one, so seeing none proves nothing"});
+      }
+    }
+
     if(p && p.numeric && f.usage === "DISPLAY" && st.unknownSign){
       var seen = Object.keys(st.unknownSignBytes).sort(function(a,b){
         return st.unknownSignBytes[b] - st.unknownSignBytes[a]; }).slice(0,4);

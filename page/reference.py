@@ -43,6 +43,12 @@ PAIRS = [
     # the new rule fire at all, and a rule no case reaches is not cross-checked.
     ("samples/data/ascii-native-zoned.cpy", "samples/data/ascii-native-zoned.dat",
      "cp037"),
+    # COMP-1/COMP-2, which no other case carries with data behind it. The pair is
+    # the point: same numbers, same copybook, one written as IBM hex float and one
+    # as IEEE 754, and the browser has to reach the same verdict as the Python on
+    # both. Without these the float rules are cross-checked by nothing at all.
+    ("samples/data/float-hex.cpy", "samples/data/float-hex.dat"),
+    ("samples/data/float-ieee.cpy", "samples/data/float-ieee.dat"),
 ]
 LIMIT = 300
 

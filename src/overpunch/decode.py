@@ -318,14 +318,98 @@ def encode_hex_float(value: Decimal, width: int = 4) -> bytes:
     return bytes([head]) + fraction_bits.to_bytes(width - 1, "big")
 
 
+# How many non-zero values it takes before "no unnormalised value was seen" is
+# evidence rather than a small sample. Measured on 4,000 values: reading true
+# IEEE bytes as HFP leaves 4.35% of binary32 and 26.15% of binary64 values with
+# a zero leading fraction nibble, which normalised HFP cannot produce. At the
+# binary32 rate, 0.9565^67 < 0.05 - so 67 clean values is 95% confidence, and
+# binary64 reaches that far sooner. Below the floor the honest answer is "cannot
+# tell", and the rule says so rather than confirming the default.
+FLOAT_SAMPLE_FLOOR = 67
+
+# ...and how many distinct magnitudes the column must span before the ABSENCE of
+# a tell means anything. A column whose values all sit inside one binade shares a
+# single exponent byte, and then neither format produces a tell - measured over
+# 200 values, both widths, both formats:
+#
+#   spread over decades   exponent bytes seen: 2-5   tells: 0 (hfp) / 3-47 (ieee)
+#   all inside one binade exponent bytes seen: 1     tells: 0 (hfp) / 0    (ieee)
+#
+# In that second row a rule keyed only on "no tell seen" CONFIRMS whichever format
+# it started with, on evidence that could not have contradicted it - the assertion
+# this rule was written to replace, wearing a measurement's clothes. One exponent
+# byte is the exact signature of that case, and every decidable column measured
+# has at least two.
+FLOAT_EXPONENT_SPREAD = 2
+
+
+def hfp_exponent_byte(raw: bytes) -> int:
+    """The magnitude byte, sign stripped. Its VARIETY is what makes a tell possible."""
+    return (raw[0] & 0x7F) if raw else 0
+
+
+def hfp_leading_nibble(raw: bytes) -> int:
+    """The nibble the whole discriminator turns on: high half of byte 1."""
+    return (raw[1] >> 4) if len(raw) >= 2 else 0
+
+
+def decode_ieee_float(raw: bytes) -> Decimal:
+    """IEEE 754 binary32/binary64, big-endian - the OTHER thing 4 or 8 bytes may be.
+
+    A compiler option emits these instead of IBM hexadecimal float, and nothing
+    in the bytes says which. See `float_format_evidence` for how the column as a
+    whole settles it.
+    """
+    import struct
+    if len(raw) not in (4, 8):
+        raise DecodeError(f"IEEE float must be 4 or 8 bytes, got {len(raw)}")
+    value = struct.unpack(">f" if len(raw) == 4 else ">d", raw)[0]
+    if value != value or value in (float("inf"), float("-inf")):
+        raise DecodeError("not a finite IEEE value")
+    return Decimal(repr(value))
+
+
+def encode_ieee_float(value: Decimal, width: int = 4) -> bytes:
+    """Inverse of decode_ieee_float, for building fixtures."""
+    import struct
+    return struct.pack(">f" if width == 4 else ">d", float(value))
+
+
+def decode_float(raw: bytes, float_format: str = "hfp") -> Decimal:
+    return (decode_ieee_float(raw) if float_format == "ieee"
+            else decode_hex_float(raw))
+
+
+def is_unnormalised_hfp(raw: bytes) -> bool:
+    """True when these bytes cannot be a normalised IBM hex float.
+
+    IBM HFP keeps the fraction normalised: the leading hex digit is non-zero for
+    every non-zero value, because that is what normalising means. That digit is
+    the high nibble of the second byte. In IEEE it is not a fraction digit at
+    all - it is the bottom of the exponent and the top of the mantissa - so it
+    is zero a measurable fraction of the time.
+
+    One such value in a column is therefore proof the bytes are not HFP. Zero of
+    them, over enough values, is evidence they are. This is the whole
+    discriminator, and it is a count, not a judgement about plausibility: an
+    IEEE column read as HFP returns confident, finite, ordinary-looking numbers
+    - 161,916.39 comes back as 505,354,496.00 - so nothing else about the value
+    gives it away.
+    """
+    if len(raw) < 2 or not any(raw):        # all-zero is zero in both formats
+        return False
+    return (raw[1] >> 4) == 0
+
+
 def decode_binary(raw: bytes, signed: bool = True) -> int:
     """COMP / COMP-4: big-endian, two's complement when signed."""
     return int.from_bytes(raw, byteorder="big", signed=signed)
 
 
-def decode_field(raw: bytes, fld: Field, encoding: str = "cp037"):
+def decode_field(raw: bytes, fld: Field, encoding: str = "cp037",
+                 float_format: str = "hfp"):
     if fld.usage in (Usage.COMP1, Usage.COMP2):
-        return decode_hex_float(raw)
+        return decode_float(raw, float_format)
     pic = fld.pic
     if pic is None:
         raise DecodeError(f"{fld.name} is a group item")

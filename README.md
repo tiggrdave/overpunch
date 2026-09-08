@@ -519,7 +519,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-321 tests with the real-world fixtures fetched, 297 without, in five kinds:
+352 tests with the real-world fixtures fetched, 328 without, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|
@@ -583,10 +583,9 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
   big-endian, which is right on a mainframe and on Micro Focus by default, but a
   `COMP-5` field from a little-endian platform would be read byte-reversed. It
   is not detected, so this is a real hole and not a warning the tool gives you.
-- `COMP-1` / `COMP-2` are read as IBM hexadecimal floating point. A compiler
-  option can emit IEEE 754 instead and **nothing in the bytes distinguishes
-  them** — this is the one place the tool asserts a default rather than
-  measuring, and it is stated here rather than hidden in a docstring.
+- A `COMP-1`/`COMP-2` column whose values all sit inside one binade cannot be
+  told apart — see below. The tool reports `FLOAT_FORMAT_UNDECIDABLE` rather
+  than confirming its default, which is the honest answer and not a useful one.
 
 ## Prove the method on a sample, then run it where the file lives
 
@@ -738,6 +737,54 @@ cp1026  negative=54  correct total 1,416,732.81
 Only `-0` was affected, because it is the one digit whose sign byte differs
 between pages. Nine negatives in ten decoded correctly, which is precisely why
 nobody would have noticed.
+
+## Nothing in a floating-point field says which format wrote it
+
+Four or eight bytes of `COMP-1`/`COMP-2` are either **IBM hexadecimal float** or
+**IEEE 754**, chosen by a compiler option, and the bytes carry no marker. Reading
+one as the other does not fail:
+
+```
+161916.39  written as IEEE 754   ->  48 1e 1f 19
+           read back as IEEE     ->  161,916.39
+           read as IBM hex float ->  505,354,496.00      finite, ordinary, 3,000x wrong
+```
+
+So no single value can settle it, and "does this look plausible" is a judgement
+that would never fire. The column settles it, by counting.
+
+IBM hex float keeps its fraction **normalised**: the leading hex digit — the high
+nibble of byte 1 — is never zero for a non-zero value, because that is what
+normalising means. In IEEE that nibble is the bottom of the exponent and the top
+of the mantissa, and it is zero a measurable share of the time. Measured over
+4,000 values:
+
+| | binary32 | binary64 |
+|---|---|---|
+| true IBM hex float | 0.00% | 0.00% |
+| true IEEE 754 | 4.35% | 26.15% |
+
+**One** such value refutes hex float outright — proof, no sample size required.
+**None** of them, over enough values, is evidence the other way.
+
+The trap is in that second sentence, and it is why this rule took two attempts.
+A column whose values all sit inside one binade shares a single exponent byte,
+and then **neither format produces a tell**:
+
+| 200 values | exponent bytes seen | tells, hex float | tells, IEEE |
+|---|---|---|---|
+| spread over decades | 2–5 | 0 | 3–47 |
+| all inside one binade | 1 | 0 | **0** |
+
+A rule keyed only on "no tell seen" confirms whichever format it started with, on
+evidence that could not have contradicted it — the assertion it was written to
+replace, wearing a measurement's clothes. So `FLOAT_FORMAT_CONFIRMED` requires 67
+non-zero values **and** more than one magnitude; below either, the answer is
+`FLOAT_FORMAT_UNDECIDABLE`. Read the other way with `--float-format ieee`, and
+the same statistic runs in reverse.
+
+`samples/float-hex` and `samples/float-ieee` are the same numbers in the same
+copybook, one byte-level difference apart.
 
 ## Two implementations, held to the same answers
 

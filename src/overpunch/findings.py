@@ -122,6 +122,53 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                       "unset": f"{st.unset:,}", "of": f"{st.examined:,}"},
             records=st.examined))
 
+    if pred.float_format_contradicted(fld, st):
+        wrong, right = ((("IEEE 754"), "IBM hexadecimal")
+                        if st.float_format == "ieee"
+                        else ("IBM hexadecimal", "IEEE 754"))
+        out.append(Finding(
+            code="FLOAT_FORMAT_MISMATCH", severity="critical", field=fld.name,
+            claim=(f"this column is being read as {wrong} float, and the bytes "
+                   f"say it is {right}; nothing in a COMP-1/COMP-2 field "
+                   f"records which one wrote it, so it has to be measured"),
+            evidence={"non_zero_values": f"{st.float_nonzero:,}",
+                      "unnormalisable_as_hex_float": f"{st.float_unnormalised:,}",
+                      "share": _pct(st.float_unnormalised, st.float_nonzero),
+                      "reading_in_force": st.float_format},
+            records=st.examined,
+            impact=(f"a normalised IBM hex float cannot have a zero leading "
+                    f"fraction nibble; re-read with --float-format "
+                    f"{'hfp' if st.float_format == 'ieee' else 'ieee'}. The "
+                    f"wrong reading does not fail - it returns ordinary "
+                    f"numbers, off by orders of magnitude")))
+
+    if pred.float_format_confirmed(fld, st):
+        out.append(Finding(
+            code="FLOAT_FORMAT_CONFIRMED", severity="info", field=fld.name,
+            claim=(f"read as {st.float_format}, and the bytes support it - this "
+                   f"was measured over the column, not assumed from a default"),
+            evidence={"non_zero_values": f"{st.float_nonzero:,}",
+                      "unnormalisable_as_hex_float": f"{st.float_unnormalised:,}",
+                      "distinct_magnitudes": f"{len(st.float_exponents)}"},
+            records=st.examined))
+
+    if pred.float_format_undecidable(fld, st):
+        out.append(Finding(
+            code="FLOAT_FORMAT_UNDECIDABLE", severity="warn", field=fld.name,
+            claim=(f"this column cannot settle whether it is IBM hexadecimal "
+                   f"float or IEEE 754, so the reading in force "
+                   f"({st.float_format}) remains a default, not a measurement"),
+            evidence={"non_zero_values": f"{st.float_nonzero:,}",
+                      "needed": f"{pred.FLOAT_SAMPLE_FLOOR:,}",
+                      "distinct_magnitudes": f"{len(st.float_exponents)}",
+                      "needed_magnitudes": f"{pred.FLOAT_EXPONENT_SPREAD}"},
+            records=st.examined,
+            impact=("a true IEEE column shows values that cannot be normalised "
+                    "hex float at 4.35% (4-byte) or 26.15% (8-byte) - but only "
+                    "when the values span more than one magnitude. Too few of "
+                    "them, or all inside one binade, and NEITHER format "
+                    "produces one, so seeing none proves nothing")))
+
     if pred.unknown_sign_byte(fld, st):
         out.append(Finding(
             code="UNKNOWN_SIGN_BYTE", severity="critical", field=fld.name,

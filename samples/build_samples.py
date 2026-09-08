@@ -20,7 +20,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from overpunch.decode import (encode_ascii_zoned, encode_overpunch_bytes,  # noqa: E402
+from overpunch.decode import (encode_ascii_zoned, encode_hex_float,  # noqa: E402
+                              encode_ieee_float, encode_overpunch_bytes,
                               encode_packed)
 
 OUT = Path(__file__).parent / "data"
@@ -270,11 +271,55 @@ def build_ascii_zoned():
                 "its last digit; read as cp037 it must raise UNKNOWN_SIGN_BYTE")
 
 
+FLOAT_CPY = """\
+000100* COMP-1 and COMP-2 carry no PICTURE and no format marker.
+000200 01  FLOAT-REC.
+000300     05  FR-ID        PIC 9(06).
+000400     05  FR-SINGLE    COMP-1.
+000500     05  FR-DOUBLE    COMP-2.
+"""
+
+
+def _float_records(encoder):
+    rng = random.Random(31)
+    out = bytearray()
+    for i in range(120):
+        out += f"{700000 + i:06d}".encode("cp037")
+        out += encoder(Decimal(str(round(rng.uniform(0.01, 500000), 2))), 4)
+        out += encoder(Decimal(str(round(rng.uniform(0.01, 900000), 2))), 8)
+    return bytes(out)
+
+
+def build_float_hfp():
+    """The default reading, and the bytes agree with it."""
+    sample("float-hex", "IBM hexadecimal float - not IEEE 754, and the "
+                        "difference is invisible in any single value",
+           FLOAT_CPY, _float_records(encode_hex_float),
+           expect=["FLOAT_FORMAT_CONFIRMED"], record_bytes=18, records=120,
+           note="measured, not assumed: 0 of 120 values are unnormalisable")
+
+
+def build_float_ieee():
+    """The same numbers, the other format, and nothing in the bytes says so.
+
+    Read as IBM hex float these return ordinary finite numbers - 161,916.39
+    comes back as 505,354,496.00 - so only the column as a whole gives it away.
+    """
+    sample("float-ieee", "IEEE 754 in a COMP-1/COMP-2 field, which the default "
+                         "reading turns into confident numbers off by orders "
+                         "of magnitude",
+           FLOAT_CPY, _float_records(encode_ieee_float),
+           expect=["FLOAT_FORMAT_MISMATCH"], record_bytes=18, records=120,
+           note="the discrimination pair for float-hex: same values, same "
+                "copybook, one byte-level difference")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
                build_wrong_copybook, build_variable_blocked, build_blank,
-               build_unset, build_range, build_ascii_zoned):
+               build_unset, build_range, build_ascii_zoned,
+               build_float_hfp, build_float_ieee):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

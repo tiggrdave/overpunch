@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .decode import FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR
 from .layout import Field, Usage
 from .probe import FieldStats
 
@@ -77,6 +78,42 @@ def unknown_sign_byte(fld: Field, st: FieldStats) -> bool:
 
 def invalid_packed(fld: Field, st: FieldStats) -> bool:
     return bool(st.invalid_packed)
+
+
+def float_evidence(fld: Field, st: FieldStats) -> str | None:
+    """What the BYTES say a COMP-1/COMP-2 column is, independent of the reading.
+
+    "ieee"  - at least one value a normalised hex float cannot produce. Proof;
+              one is enough, and no sample floor applies to it.
+    "hfp"   - no such value, over enough values, spanning enough magnitudes
+              that one would have shown up. Evidence, not proof.
+    None    - the column cannot settle it, which is a real answer and the one
+              this rule exists to be able to give.
+    """
+    if fld.usage not in (Usage.COMP1, Usage.COMP2) or not st.float_nonzero:
+        return None
+    if st.float_unnormalised:
+        return "ieee"
+    if (st.float_nonzero >= FLOAT_SAMPLE_FLOOR
+            and len(st.float_exponents) >= FLOAT_EXPONENT_SPREAD):
+        return "hfp"
+    return None
+
+
+def float_format_contradicted(fld: Field, st: FieldStats) -> bool:
+    """The bytes say one format and the column is being read as the other."""
+    ev = float_evidence(fld, st)
+    return bool(ev and ev != st.float_format)
+
+
+def float_format_confirmed(fld: Field, st: FieldStats) -> bool:
+    return float_evidence(fld, st) == st.float_format
+
+
+def float_format_undecidable(fld: Field, st: FieldStats) -> bool:
+    """Not enough values, or all one magnitude, for absence to be evidence."""
+    return bool(fld.usage in (Usage.COMP1, Usage.COMP2) and st.float_nonzero
+                and float_evidence(fld, st) is None)
 
 
 def never_populated(fld: Field, st: FieldStats) -> bool:

@@ -130,5 +130,31 @@
     "note": "read as EBCDIC-or-nothing this column loses every sign AND its last digit; read as cp037 it must raise UNKNOWN_SIGN_BYTE",
     "copybook": "ascii-native-zoned.cpy",
     "data": "ascii-native-zoned.dat"
+  },
+  {
+    "name": "float-hex",
+    "why": "IBM hexadecimal float - not IEEE 754, and the difference is invisible in any single value",
+    "encoding": "cp037",
+    "expect": [
+      "FLOAT_FORMAT_CONFIRMED"
+    ],
+    "record_bytes": 18,
+    "records": 120,
+    "note": "measured, not assumed: 0 of 120 values are unnormalisable",
+    "copybook": "float-hex.cpy",
+    "data": "float-hex.dat"
+  },
+  {
+    "name": "float-ieee",
+    "why": "IEEE 754 in a COMP-1/COMP-2 field, which the default reading turns into confident numbers off by orders of magnitude",
+    "encoding": "cp037",
+    "expect": [
+      "FLOAT_FORMAT_MISMATCH"
+    ],
+    "record_bytes": 18,
+    "records": 120,
+    "note": "the discrimination pair for float-hex: same values, same copybook, one byte-level difference",
+    "copybook": "float-ieee.cpy",
+    "data": "float-ieee.dat"
   }
 ]

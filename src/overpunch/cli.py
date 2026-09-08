@@ -102,7 +102,7 @@ def cmd_scan(args) -> int:
         return 2
 
     stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit,
-                 recfm=recfm)
+                 recfm=recfm, float_format=getattr(args, "float_format", "hfp"))
     findings = evaluate(layout, stats)
     examined = next(iter(stats.values())).examined if stats else 0
     print(f"encoding : {args.encoding}")
@@ -141,7 +141,8 @@ def cmd_decode(args) -> int:
         layout.record_bytes_override = args.record_bytes
     try:
         stats = scan(args.data, layout, encoding=args.encoding,
-                     limit=args.limit, recfm=getattr(args, "recfm", "auto"))
+                     limit=args.limit, recfm=getattr(args, "recfm", "auto"),
+                     float_format=getattr(args, "float_format", "hfp"))
     except LayoutMismatch as exc:
         print(f"[CRITICAL] LAYOUT_MISMATCH\n    {exc}")
         print("    this copybook does not describe this file; there is nothing "
@@ -173,7 +174,9 @@ def cmd_decode(args) -> int:
         for f in fields:
             raw = rec[f.offset:f.offset + f.total_size()]
             try:
-                columns[f.name].append(decode_field(raw, f, args.encoding))
+                columns[f.name].append(decode_field(
+                    raw, f, args.encoding,
+                    getattr(args, "float_format", "hfp")))
             except DecodeError:
                 # an empty cell, never a plausible number. The count is printed
                 # below so nobody discovers the hole by reconciling a total.
@@ -417,6 +420,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--float-format", choices=["hfp", "ieee"], default="hfp",
+                   help="how to read COMP-1/COMP-2: IBM hexadecimal float "
+                        "(default) or IEEE 754. Nothing in the bytes records "
+                        "which; scan measures the column and says if the "
+                        "reading is contradicted")
     p.add_argument("--record-bytes", type=int,
                    help="override the record length when the copybook is "
                         "only a view of a longer record")
@@ -430,6 +438,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--float-format", choices=["hfp", "ieee"], default="hfp",
+                   help="how to read COMP-1/COMP-2: IBM hexadecimal float "
+                        "(default) or IEEE 754. Nothing in the bytes records "
+                        "which; scan measures the column and says if the "
+                        "reading is contradicted")
     p.add_argument("--record-bytes", type=int,
                    help="override the record length when the copybook is "
                         "only a view of a longer record")

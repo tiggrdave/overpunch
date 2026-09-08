@@ -12,10 +12,11 @@ from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
-from .decode import (DecodeError, ascii_zone_sign, decode_binary,
-                     decode_display, decode_display_naive, decode_hex_float,
-                     decode_packed, decode_text, is_ascii_page,
-                     split_overpunch, zone_sign)
+from .decode import (FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR, DecodeError,
+                     ascii_zone_sign, decode_binary, decode_display,
+                     decode_display_naive, decode_float, decode_packed,
+                     decode_text, hfp_exponent_byte, is_ascii_page,
+                     is_unnormalised_hfp, split_overpunch, zone_sign)
 from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
@@ -114,6 +115,10 @@ class FieldStats:
     ascii_signed: int = 0
     unknown_sign_byte: int = 0
     unknown_sign_values: Counter = dc_field(default_factory=Counter)
+    float_nonzero: int = 0          # COMP-1/COMP-2 values that are not all-zero
+    float_unnormalised: int = 0     # ...of those, how many HFP cannot produce
+    float_exponents: set = dc_field(default_factory=set)  # magnitudes seen
+    float_format: str = "hfp"       # the reading that was in force
     max_significant_digits: int = 0
     distinct: Counter = dc_field(default_factory=Counter)
     undecodable: int = 0
@@ -328,7 +333,8 @@ class LayoutMismatch(Exception):
 
 
 def scan(path: str, layout: Layout, encoding: str = "cp037",
-         limit: int | None = None, recfm: str = "auto") -> dict[str, FieldStats]:
+         limit: int | None = None, recfm: str = "auto",
+         float_format: str = "hfp") -> dict[str, FieldStats]:
     fields = layout.elementary_fields()
     stats = FieldStatsMap((field_key(f), FieldStats(name=f.name)) for f in fields)
     rlen = layout.record_length()
@@ -338,19 +344,31 @@ def scan(path: str, layout: Layout, encoding: str = "cp037",
             break
         for fld in fields:
             raw = rec[fld.offset:fld.offset + fld.total_size()]
-            _observe(stats[field_key(fld)], fld, raw, encoding)
+            _observe(stats[field_key(fld)], fld, raw, encoding, float_format)
     return stats
 
 
-def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
+def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str,
+             float_format: str = "hfp") -> None:
     st.examined += 1
 
     # COMP-1 and COMP-2 are declared with a USAGE and no PICTURE at all. Every
     # data file until the torture record happened to have neither, so scan()
     # crashed on the first copybook that did.
     if fld.usage in (Usage.COMP1, Usage.COMP2):
+        # Which of the two float formats these bytes are is not written down
+        # anywhere, so it is measured: see decode.is_unnormalised_hfp. Counted
+        # for every column whichever reading is in force, because the evidence
+        # points the same way in both directions - a normalised HFP column has
+        # zero of these and an IEEE one does not.
+        if any(raw):
+            st.float_nonzero += 1
+            st.float_exponents.add(hfp_exponent_byte(raw))
+            if is_unnormalised_hfp(raw):
+                st.float_unnormalised += 1
+        st.float_format = float_format
         try:
-            st.sum_correct += decode_hex_float(raw)
+            st.sum_correct += decode_float(raw, float_format)
         except (DecodeError, ArithmeticError):
             st.undecodable += 1
         return
