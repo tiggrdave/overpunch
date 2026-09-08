@@ -169,5 +169,31 @@
     "note": "read as big-endian IEEE this still returns finite numbers",
     "copybook": "float-ieee-le.cpy",
     "data": "float-ieee-le.dat"
+  },
+  {
+    "name": "comp5-fullrange",
+    "why": "declared COMP but holding more than the PICTURE allows - the field is COMP-5, or was compiled TRUNC(BIN)",
+    "encoding": "cp037",
+    "expect": [
+      "BINARY_EXCEEDS_PIC"
+    ],
+    "record_bytes": 12,
+    "records": 120,
+    "note": "one value above 9,999 is proof; no sample size is needed",
+    "copybook": "comp5-fullrange.cpy",
+    "data": "comp5-fullrange.dat"
+  },
+  {
+    "name": "comp5-little",
+    "why": "binary written little-endian, as a PC COBOL compiler writes COMP-5; read big-endian the values are still integers, just different ones",
+    "encoding": "cp037",
+    "expect": [
+      "BINARY_BYTE_ORDER"
+    ],
+    "record_bytes": 12,
+    "records": 120,
+    "note": "",
+    "copybook": "comp5-little.cpy",
+    "data": "comp5-little.dat"
   }
 ]

@@ -102,7 +102,8 @@ def cmd_scan(args) -> int:
         return 2
 
     stats = scan(args.data, layout, encoding=args.encoding, limit=args.limit,
-                 recfm=recfm, float_format=getattr(args, "float_format", "hfp"))
+                 recfm=recfm, float_format=getattr(args, "float_format", "hfp"),
+                 binary_byteorder=getattr(args, "binary_byteorder", "big"))
     findings = evaluate(layout, stats)
     examined = next(iter(stats.values())).examined if stats else 0
     print(f"encoding : {args.encoding}")
@@ -142,7 +143,8 @@ def cmd_decode(args) -> int:
     try:
         stats = scan(args.data, layout, encoding=args.encoding,
                      limit=args.limit, recfm=getattr(args, "recfm", "auto"),
-                     float_format=getattr(args, "float_format", "hfp"))
+                     float_format=getattr(args, "float_format", "hfp"),
+                     binary_byteorder=getattr(args, "binary_byteorder", "big"))
     except LayoutMismatch as exc:
         print(f"[CRITICAL] LAYOUT_MISMATCH\n    {exc}")
         print("    this copybook does not describe this file; there is nothing "
@@ -420,6 +422,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--binary-byteorder", choices=["big", "little"], default="big",
+                   help="how to read COMP/COMP-5: big-endian as a mainframe "
+                        "writes it (default), or little-endian. COMP-5 is "
+                        "native order and the file does not say whose; scan "
+                        "measures it")
     p.add_argument("--float-format", choices=["hfp", "ieee", "ieee-le"],
                    default="hfp",
                    help="how to read COMP-1/COMP-2: IBM hexadecimal float "
@@ -440,6 +447,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--recfm", choices=["auto", "fixed", "vb"], default="auto",
                    help="record format; auto detects a VB descriptor word")
+    p.add_argument("--binary-byteorder", choices=["big", "little"], default="big",
+                   help="how to read COMP/COMP-5: big-endian as a mainframe "
+                        "writes it (default), or little-endian. COMP-5 is "
+                        "native order and the file does not say whose; scan "
+                        "measures it")
     p.add_argument("--float-format", choices=["hfp", "ieee", "ieee-le"],
                    default="hfp",
                    help="how to read COMP-1/COMP-2: IBM hexadecimal float "

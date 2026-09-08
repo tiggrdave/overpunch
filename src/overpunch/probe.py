@@ -12,8 +12,9 @@ from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
-from .decode import (FLOAT_BYTEORDER_RATIO, FLOAT_EXPONENT_SPREAD,
-                     FLOAT_SAMPLE_FLOOR, DecodeError,
+from .decode import (BYTEORDER_SPREAD, FLOAT_BYTEORDER_RATIO,
+                     FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR, DecodeError,
+                     binary_pic_limit,
                      ascii_zone_sign, decode_binary, decode_display,
                      decode_display_naive, decode_float, decode_packed,
                      decode_text, hfp_exponent_byte, is_ascii_page,
@@ -121,6 +122,12 @@ class FieldStats:
     float_exponents: set = dc_field(default_factory=set)  # magnitudes seen
     float_head_bytes: set = dc_field(default_factory=set)  # byte 0, all records
     float_tail_bytes: set = dc_field(default_factory=set)  # byte -1, all records
+    binary_nonzero: int = 0
+    binary_over_pic: int = 0        # values a standard COMP could not hold
+    binary_max_abs: int = 0
+    binary_head_bytes: set = dc_field(default_factory=set)
+    binary_tail_bytes: set = dc_field(default_factory=set)
+    binary_order: str = "big"       # the reading that was in force
     float_format: str = "hfp"       # the reading that was in force
     max_significant_digits: int = 0
     distinct: Counter = dc_field(default_factory=Counter)
@@ -337,7 +344,8 @@ class LayoutMismatch(Exception):
 
 def scan(path: str, layout: Layout, encoding: str = "cp037",
          limit: int | None = None, recfm: str = "auto",
-         float_format: str = "hfp") -> dict[str, FieldStats]:
+         float_format: str = "hfp",
+         binary_byteorder: str = "big") -> dict[str, FieldStats]:
     fields = layout.elementary_fields()
     stats = FieldStatsMap((field_key(f), FieldStats(name=f.name)) for f in fields)
     rlen = layout.record_length()
@@ -347,12 +355,13 @@ def scan(path: str, layout: Layout, encoding: str = "cp037",
             break
         for fld in fields:
             raw = rec[fld.offset:fld.offset + fld.total_size()]
-            _observe(stats[field_key(fld)], fld, raw, encoding, float_format)
+            _observe(stats[field_key(fld)], fld, raw, encoding, float_format,
+                     binary_byteorder)
     return stats
 
 
 def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str,
-             float_format: str = "hfp") -> None:
+             float_format: str = "hfp", binary_byteorder: str = "big") -> None:
     st.examined += 1
 
     # COMP-1 and COMP-2 are declared with a USAGE and no PICTURE at all. Every
@@ -413,8 +422,22 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str,
         else:
             st.sum_correct += decode_packed(raw, pic.scale)
         return
-    if fld.usage is Usage.COMP:
-        value = Decimal(decode_binary(raw, signed=pic.signed))
+    if fld.usage in (Usage.COMP, Usage.COMP5):
+        # Two independent unknowns, measured separately. Byte order is not
+        # recorded anywhere; and standard COMP truncates to the PICTURE while
+        # COMP-5 does not, so a value above the PIC's limit is proof the field
+        # is not what the copybook calls it.
+        if raw and any(raw):
+            st.binary_nonzero += 1
+            st.binary_head_bytes.add(raw[0])
+            st.binary_tail_bytes.add(raw[-1])
+        st.binary_order = binary_byteorder
+        integer = decode_binary(raw, signed=pic.signed,
+                                little=(binary_byteorder == "little"))
+        st.binary_max_abs = max(st.binary_max_abs, abs(integer))
+        if abs(integer) > binary_pic_limit(pic):
+            st.binary_over_pic += 1
+        value = Decimal(integer)
         st.sum_correct += value.scaleb(-pic.scale) if pic.scale else value
         return
 

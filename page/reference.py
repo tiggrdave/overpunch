@@ -52,6 +52,10 @@ PAIRS = [
     # ...and the byte order, which is a second unknown the browser must also get
     # right. A real compiler (GnuCOBOL on x86) writes this one.
     ("samples/data/float-ieee-le.cpy", "samples/data/float-ieee-le.dat"),
+    # COMP-5: the width, which the JS parser has to agree on before anything
+    # else can be compared, and the two tells.
+    ("samples/data/comp5-fullrange.cpy", "samples/data/comp5-fullrange.dat"),
+    ("samples/data/comp5-little.cpy", "samples/data/comp5-little.dat"),
 ]
 LIMIT = 300
 

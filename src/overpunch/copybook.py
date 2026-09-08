@@ -16,6 +16,12 @@ _USAGE_WORDS = {
     "COMP-4": Usage.COMP, "COMPUTATIONAL-4": Usage.COMP, "BINARY": Usage.COMP,
     "COMP-3": Usage.COMP3, "COMPUTATIONAL-3": Usage.COMP3,
     "PACKED-DECIMAL": Usage.COMP3,
+    # COMP-5 / COMP-X were not recognised AT ALL and fell through to DISPLAY,
+    # so PIC S9(04) COMP-5 was sized 4 bytes instead of 2 - which does not
+    # mis-read one field, it shifts every field after it and changes the record
+    # length. The README used to call this "reads byte-reversed"; it was worse.
+    "COMP-5": Usage.COMP5, "COMPUTATIONAL-5": Usage.COMP5,
+    "COMP-X": Usage.COMP5, "COMPUTATIONAL-X": Usage.COMP5,
     "COMP-1": Usage.COMP1, "COMPUTATIONAL-1": Usage.COMP1,
     "COMP-2": Usage.COMP2, "COMPUTATIONAL-2": Usage.COMP2,
 }

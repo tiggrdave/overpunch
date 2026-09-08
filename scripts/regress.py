@@ -83,7 +83,7 @@ passed = int(m.group(1)) if m else 0
     # predecessor of this script reported "zero failures" by grepping pytest
     # output when pytest was not installed and had never run. Bump when the
     # suite grows.
-check("pytest passed-count >= 354", passed >= 354, f"parsed {passed} passed")
+check("pytest passed-count >= 382", passed >= 382, f"parsed {passed} passed")
 check("suite is not silently skipping the fetched fixtures", int(re.search(r"(\d+) skipped", out).group(1)) <= 12 if re.search(r"(\d+) skipped", out) else True, re.search(r"\d+ skipped", out).group(0) if re.search(r"\d+ skipped", out) else "none")
 check("pytest reports no failures", f is None, f"{f.group(1)} failed" if f else "")
 
@@ -95,7 +95,7 @@ check("reference corpus regenerated", "cases" in out or "field type mappings" in
 rc, out = run(["node", "page/verify_js.js"], cwd=CLONE)
 m = re.search(r"(\d+) files, (\d+) fields, (\d+) findings", out)
 d = re.search(r"(\d+) disagreement", out)
-check("cross-check compared real work", bool(m) and int(m.group(1)) >= 15 and int(m.group(3)) >= 56,
+check("cross-check compared real work", bool(m) and int(m.group(1)) >= 17 and int(m.group(3)) >= 59,
       m.group(0) if m else out.strip()[:120])
 check("0 disagreements", bool(d) and int(d.group(1)) == 0, d.group(0) if d else "no count printed")
 

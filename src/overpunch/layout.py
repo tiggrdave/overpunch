@@ -9,7 +9,8 @@ from enum import Enum
 
 class Usage(str, Enum):
     DISPLAY = "DISPLAY"
-    COMP = "COMP"          # binary, big-endian
+    COMP = "COMP"          # binary, big-endian, truncated to the PIC
+    COMP5 = "COMP-5"       # binary, NATIVE-endian, full binary range
     COMP3 = "COMP-3"       # packed decimal
     COMP1 = "COMP-1"       # single float
     COMP2 = "COMP-2"       # double float
@@ -91,7 +92,7 @@ class Field:
         if self.usage is Usage.COMP3:
             # packed: two digits per byte plus a sign nibble, rounded up
             return p.digits // 2 + 1
-        if self.usage is Usage.COMP:
+        if self.usage in (Usage.COMP, Usage.COMP5):
             if p.digits <= 4:
                 return 2
             if p.digits <= 9:

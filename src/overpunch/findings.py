@@ -182,6 +182,41 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                     "them, or all inside one binade, and NEITHER format "
                     "produces one, so seeing none proves nothing")))
 
+    if pred.binary_byteorder_contradicted(fld, st):
+        observed = pred.binary_byteorder(fld, st)
+        out.append(Finding(
+            code="BINARY_BYTE_ORDER", severity="critical", field=fld.name,
+            claim=(f"this binary field is being read {st.binary_order}-endian "
+                   f"and the bytes say it is {observed}-endian; COMP-5 is "
+                   f"defined as NATIVE order, and nothing in the file records "
+                   f"which machine's"),
+            evidence={"distinct_first_byte": f"{len(st.binary_head_bytes)}",
+                      "distinct_last_byte": f"{len(st.binary_tail_bytes)}",
+                      "reading_in_force": st.binary_order},
+            records=st.examined,
+            impact=(f"re-read with --binary-byteorder {observed}. The high-order "
+                    f"end of a real column varies little because magnitudes "
+                    f"cluster; here it is the {'last' if observed == 'little' else 'first'} "
+                    f"byte. Read the wrong way round the values are still "
+                    f"integers, just different ones")))
+
+    if pred.binary_exceeds_pic(fld, st):
+        limit = 10 ** pic.digits - 1
+        out.append(Finding(
+            code="BINARY_EXCEEDS_PIC", severity="critical", field=fld.name,
+            claim=(f"declared {pic.raw} COMP, which a standard compiler "
+                   f"truncates to {limit:,}, but this field holds larger "
+                   f"values; it is COMP-5 or was compiled TRUNC(BIN), and the "
+                   f"copybook does not say so"),
+            evidence={"over_limit": f"{st.binary_over_pic:,}",
+                      "share": _pct(st.binary_over_pic, st.examined),
+                      "largest_seen": f"{st.binary_max_abs:,}",
+                      "pic_allows": f"{limit:,}"},
+            records=st.examined,
+            impact=("one value above the limit is enough - a standard COMP "
+                    "field cannot contain one. Anything downstream that "
+                    "believes the PICTURE will size a column too small")))
+
     if pred.unknown_sign_byte(fld, st):
         out.append(Finding(
             code="UNKNOWN_SIGN_BYTE", severity="critical", field=fld.name,

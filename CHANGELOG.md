@@ -25,6 +25,10 @@ plausible wrong number, returned with no complaint.
 - **`COMP-1`/`COMP-2` were assumed, not measured.** The docstring conceded
   nothing in the bytes distinguishes IBM hexadecimal float from IEEE 754, and the
   tool picked one anyway.
+- **`COMP-5`/`COMP-X` were not recognised at all** and fell through to
+  `DISPLAY`, sizing `PIC S9(04) COMP-5` as 4 bytes where the truth is 2 — which
+  shifts every field after it and changes the record length. 0.1.0's README
+  called this "would be read byte-reversed"; it was worse than that.
 - **Byte order was assumed too** — found only by compiling a COBOL program.
   GnuCOBOL on x86 writes floats in native order, so the tool named the format
   correctly, read the bytes backwards, and reported `FLOAT_FORMAT_CONFIRMED` over
@@ -40,6 +44,11 @@ plausible wrong number, returned with no complaint.
   `--float-format hfp | ieee | ieee-le`. Both the format and the byte order are
   measured; a column that cannot settle either says so instead of confirming a
   default.
+- `COMP-5`/`COMP-X` as a real usage, with `BINARY_EXCEEDS_PIC` (a value above
+  what the PICTURE allows is proof the field is not standard `COMP`) and
+  `BINARY_BYTE_ORDER`, plus `--binary-byteorder big | little`. The byte-order
+  test is evaluated first, because the wrong order makes everything look
+  over-sized for the wrong reason.
 - `--force` on `decode`, which writes past critical findings but leaves
   unreadable values **empty and counted**, never guessed. A layout mismatch is
   not forceable.
@@ -67,16 +76,15 @@ plausible wrong number, returned with no complaint.
 
 ### Verified
 
-353 passed / 11 skipped from a cold clone with the real-world fixtures fetched
-(329 without them); **0 disagreements** between the Python and browser
-implementations across 15 files; 10/10 against GnuCOBOL; and the headline 47%
+382 passed / 11 skipped from a cold clone with the real-world fixtures fetched
+(358 without them); **0 disagreements** between the Python and browser
+implementations across 17 files; 10/10 against GnuCOBOL; and the headline 47%
 CardDemo overstatement recomputed from the tool's own output.
 
 ### Known, and stated rather than hidden
 
-- `COMP-5`/`COMP-X` native-endian binary integers are not modelled and **have no
-  detector**. `COMP` is read big-endian, which GnuCOBOL confirms is correct for
-  `COMP`.
+- A binary column that uses its full range at both ends gives no byte-order
+  signal; `BINARY_BYTE_ORDER` stays silent rather than guessing.
 - A float column whose values all sit inside one binade cannot be told apart, in
   either format. The tool reports `FLOAT_FORMAT_UNDECIDABLE`.
 

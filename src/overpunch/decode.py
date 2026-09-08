@@ -405,6 +405,12 @@ def decode_float(raw: bytes, float_format: str = "hfp") -> Decimal:
 # margin measured and still refuses a column with no spread at all.
 FLOAT_BYTEORDER_RATIO = 2
 
+# ...and the wide end has to actually BE wide. With only a handful of records
+# both ends are narrow and the ratio can decide on nothing: 4 records can give
+# head=1, tail=4 and "prove" big-endian. Requiring the larger side to span 8
+# distinct byte values scales with the data instead of guessing a record count.
+BYTEORDER_SPREAD = 8
+
 
 def is_unnormalised_hfp(raw: bytes) -> bool:
     """True when these bytes cannot be a normalised IBM hex float.
@@ -427,9 +433,30 @@ def is_unnormalised_hfp(raw: bytes) -> bool:
     return (raw[1] >> 4) == 0
 
 
-def decode_binary(raw: bytes, signed: bool = True) -> int:
-    """COMP / COMP-4: big-endian, two's complement when signed."""
-    return int.from_bytes(raw, byteorder="big", signed=signed)
+def decode_binary(raw: bytes, signed: bool = True, little: bool = False) -> int:
+    """COMP / COMP-4 / COMP-5: two's complement when signed.
+
+    Byte order is not written down. A mainframe writes big-endian and so does
+    GnuCOBOL for COMP - verified by compiling a program. COMP-5 is defined as
+    NATIVE order, which on the machine that wrote the file may be either, so it
+    is measured rather than assumed. See `binary_pic_limit` for the other half:
+    COMP truncates to the PIC and COMP-5 does not, which is a second and
+    completely independent way to tell them apart.
+    """
+    return int.from_bytes(raw, byteorder="little" if little else "big",
+                          signed=signed)
+
+
+def binary_pic_limit(pic) -> int:
+    """The largest magnitude a standard COMP field may hold: 10**digits - 1.
+
+    This is the whole TRUNC hypothesis. Standard COMP truncates to the PICTURE's
+    digit count, so PIC S9(4) COMP holds at most 9,999 even though its two bytes
+    reach 32,767. COMP-5 (and TRUNC(BIN)) use the full binary range. So ONE
+    value above the limit is proof the field is not standard COMP - no sample
+    floor, no plausibility, just arithmetic.
+    """
+    return 10 ** pic.digits - 1
 
 
 def decode_field(raw: bytes, fld: Field, encoding: str = "cp037",

@@ -17,7 +17,12 @@ var USAGES = {
   "COMP":"COMP","COMPUTATIONAL":"COMP","COMP-4":"COMP","COMPUTATIONAL-4":"COMP",
   "BINARY":"COMP","COMP-3":"COMP-3","COMPUTATIONAL-3":"COMP-3",
   "PACKED-DECIMAL":"COMP-3","COMP-1":"COMP-1","COMPUTATIONAL-1":"COMP-1",
-  "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2"
+  "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2",
+  /* COMP-5 / COMP-X were not recognised at all and fell through to DISPLAY,
+     sizing PIC S9(04) COMP-5 as 4 bytes instead of 2 - which shifts every
+     field after it and changes the record length. */
+  "COMP-5":"COMP-5","COMPUTATIONAL-5":"COMP-5",
+  "COMP-X":"COMP-5","COMPUTATIONAL-X":"COMP-5"
 };
 
 // Compiler-directing statements: they control the listing, carry no period, and
@@ -137,7 +142,8 @@ function elementarySize(f){
   if(!p) return 0;
   if(!p.numeric) return p.chars;
   if(f.usage === "COMP-3") return Math.floor(p.digits/2) + 1;
-  if(f.usage === "COMP") return p.digits<=4 ? 2 : (p.digits<=9 ? 4 : 8);
+  if(f.usage === "COMP" || f.usage === "COMP-5")
+    return p.digits<=4 ? 2 : (p.digits<=9 ? 4 : 8);
   return p.digits + ((p.signed && f.signSeparate) ? 1 : 0);
 }
 

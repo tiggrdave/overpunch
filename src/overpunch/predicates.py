@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .decode import (FLOAT_BYTEORDER_RATIO, FLOAT_EXPONENT_SPREAD,
-                     FLOAT_SAMPLE_FLOOR)
+from .decode import (BYTEORDER_SPREAD, FLOAT_BYTEORDER_RATIO,
+                     FLOAT_EXPONENT_SPREAD, FLOAT_SAMPLE_FLOOR,
+                     binary_pic_limit)
 from .layout import Field, Usage
 from .probe import FieldStats
 
@@ -101,6 +102,28 @@ def float_evidence(fld: Field, st: FieldStats) -> str | None:
     return None
 
 
+def _byteorder_from_entropy(head: int, tail: int) -> str | None:
+    """Which end holds the high-order bytes, from how much each end varies.
+
+    The high-order end of a real column takes FEW distinct byte values, because
+    business magnitudes cluster; the low-order end takes many. Measured:
+
+        GnuCOBOL COMP-2 (x86, IEEE)   first 143   last   3   -> little
+        GnuCOBOL COMP   (x86, S9(4))  first   2   last 200   -> big
+        big-endian IEEE fixtures      first   2   last  25   -> big
+
+    Returns None when neither end is clearly wider, which is the right answer
+    for a column that genuinely uses its full range at both ends.
+    """
+    if max(head, tail) < BYTEORDER_SPREAD:
+        return None
+    if tail * FLOAT_BYTEORDER_RATIO <= head:
+        return "little"
+    if head * FLOAT_BYTEORDER_RATIO <= tail:
+        return "big"
+    return None
+
+
 def float_byteorder(fld: Field, st: FieldStats) -> str | None:
     """"big" | "little" | None - which end of the field holds the exponent.
 
@@ -112,14 +135,8 @@ def float_byteorder(fld: Field, st: FieldStats) -> str | None:
     writes native order, and the tool called the format right and the byte order
     wrong, returning 1.16e-53 for 1.727 while reporting CONFIRMED.
     """
-    head, tail = len(st.float_head_bytes), len(st.float_tail_bytes)
-    if not head or not tail:
-        return None
-    if tail * FLOAT_BYTEORDER_RATIO <= head:
-        return "little"
-    if head * FLOAT_BYTEORDER_RATIO <= tail:
-        return "big"
-    return None
+    return _byteorder_from_entropy(len(st.float_head_bytes),
+                                   len(st.float_tail_bytes))
 
 
 def float_reading(st: FieldStats) -> tuple[str, str | None]:
@@ -169,6 +186,35 @@ def float_format_undecidable(fld: Field, st: FieldStats) -> bool:
         return True
     # format settled, byte order not - still not a confirmation
     return ev == "ieee" and float_byteorder(fld, st) is None
+
+
+def binary_byteorder(fld: Field, st: FieldStats) -> str | None:
+    """Which end of a COMP/COMP-5 field holds the high-order bytes."""
+    if fld.usage not in (Usage.COMP, Usage.COMP5) or not st.binary_nonzero:
+        return None
+    return _byteorder_from_entropy(len(st.binary_head_bytes),
+                                   len(st.binary_tail_bytes))
+
+
+def binary_byteorder_contradicted(fld: Field, st: FieldStats) -> bool:
+    observed = binary_byteorder(fld, st)
+    return bool(observed and observed != st.binary_order)
+
+
+def binary_exceeds_pic(fld: Field, st: FieldStats) -> bool:
+    """A COMP field holding more than its PICTURE allows is not standard COMP.
+
+    Standard COMP truncates to the digit count: PIC S9(4) COMP holds at most
+    9,999 though its two bytes reach 32,767. COMP-5 and TRUNC(BIN) use the full
+    range. One value above the limit is proof - and unlike the byte-order test
+    it needs no sample at all.
+
+    Only asked of fields DECLARED COMP; a field declared COMP-5 is entitled to
+    the full range. And not asked at all when the byte order is contradicted,
+    because then the decoded values are not the field's values.
+    """
+    return bool(fld.usage is Usage.COMP and fld.pic and st.binary_over_pic
+                and not binary_byteorder_contradicted(fld, st))
 
 
 def never_populated(fld: Field, st: FieldStats) -> bool:

@@ -639,7 +639,12 @@ var USAGES = {
   "COMP":"COMP","COMPUTATIONAL":"COMP","COMP-4":"COMP","COMPUTATIONAL-4":"COMP",
   "BINARY":"COMP","COMP-3":"COMP-3","COMPUTATIONAL-3":"COMP-3",
   "PACKED-DECIMAL":"COMP-3","COMP-1":"COMP-1","COMPUTATIONAL-1":"COMP-1",
-  "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2"
+  "COMP-2":"COMP-2","COMPUTATIONAL-2":"COMP-2",
+  /* COMP-5 / COMP-X were not recognised at all and fell through to DISPLAY,
+     sizing PIC S9(04) COMP-5 as 4 bytes instead of 2 - which shifts every
+     field after it and changes the record length. */
+  "COMP-5":"COMP-5","COMPUTATIONAL-5":"COMP-5",
+  "COMP-X":"COMP-5","COMPUTATIONAL-X":"COMP-5"
 };
 
 // Compiler-directing statements: they control the listing, carry no period, and
@@ -759,7 +764,8 @@ function elementarySize(f){
   if(!p) return 0;
   if(!p.numeric) return p.chars;
   if(f.usage === "COMP-3") return Math.floor(p.digits/2) + 1;
-  if(f.usage === "COMP") return p.digits<=4 ? 2 : (p.digits<=9 ? 4 : 8);
+  if(f.usage === "COMP" || f.usage === "COMP-5")
+    return p.digits<=4 ? 2 : (p.digits<=9 ? 4 : 8);
   return p.digits + ((p.signed && f.signSeparate) ? 1 : 0);
 }
 
@@ -1065,7 +1071,19 @@ function isAsciiPage(){ return CP037 && CP037.charAt(0x30) === "0"; }
    The absence of one only means something if it COULD have appeared: a column
    whose values all sit inside one binade shares a single exponent byte, and
    then neither format produces one. Hence the spread gate. */
-var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2, FLOAT_BYTEORDER_RATIO = 2;
+var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2, FLOAT_BYTEORDER_RATIO = 2,
+    BYTEORDER_SPREAD = 8;
+
+/* Which end holds the high-order bytes, from how much each end varies. The
+   high-order end of a real column takes FEW distinct byte values because
+   magnitudes cluster; the low-order end takes many. The wide end has to
+   actually be wide, or four records can "prove" anything. */
+function byteorderFromEntropy(head, tail){
+  if(Math.max(head, tail) < BYTEORDER_SPREAD) return null;
+  if(tail * FLOAT_BYTEORDER_RATIO <= head) return "little";
+  if(head * FLOAT_BYTEORDER_RATIO <= tail) return "big";
+  return null;
+}
 
 /* Byte order is a SECOND unknown. In IEEE the sign and exponent sit at one end
    and the low mantissa bits at the other; business magnitudes cluster, so the
@@ -1074,12 +1092,8 @@ var FLOAT_SAMPLE_FLOOR = 67, FLOAT_EXPONENT_SPREAD = 2, FLOAT_BYTEORDER_RATIO = 
    distinct, last byte 3. Getting the format right and the order wrong returns
    1.16e-53 where the value is 1.727, with no complaint. */
 function floatByteorder(st){
-  var head = Object.keys(st.floatHeadBytes).length,
-      tail = Object.keys(st.floatTailBytes).length;
-  if(!head || !tail) return null;
-  if(tail * FLOAT_BYTEORDER_RATIO <= head) return "little";
-  if(head * FLOAT_BYTEORDER_RATIO <= tail) return "big";
-  return null;
+  return byteorderFromEntropy(Object.keys(st.floatHeadBytes).length,
+                              Object.keys(st.floatTailBytes).length);
 }
 function floatReading(st){
   if(st.floatFormat === "ieee-le") return {fmt:"ieee", order:"little"};
@@ -1181,11 +1195,20 @@ function observe(st, f, bytes, off){
     else st.sumCorrect += packedValue;
     return;
   }
-  if(f.usage === "COMP"){
+  if(f.usage === "COMP" || f.usage === "COMP-5"){
+    var bat = off + f.offset, anyBin = false;
+    for(var z = 0; z < len; z++) if(bytes[bat+z]){ anyBin = true; break; }
+    if(anyBin){
+      st.binaryNonzero++;
+      st.binaryHeadBytes[bytes[bat]] = true;
+      st.binaryTailBytes[bytes[bat + len - 1]] = true;
+    }
     var v = 0;
-    for(var k = 0; k < len; k++) v = v * 256 + bytes[off + f.offset + k];
-    if(f.pic.signed && (bytes[off + f.offset] & 0x80))
-      v -= Math.pow(2, 8 * len);
+    for(var k = 0; k < len; k++) v = v * 256 + bytes[bat + k];
+    if(f.pic.signed && (bytes[bat] & 0x80)) v -= Math.pow(2, 8 * len);
+    st.binaryMaxAbs = Math.max(st.binaryMaxAbs, Math.abs(v));
+    // standard COMP truncates to the PICTURE; COMP-5 does not
+    if(Math.abs(v) > Math.pow(10, f.pic.digits) - 1) st.binaryOverPic++;
     st.sumCorrect += f.pic.scale ? v / Math.pow(10, f.pic.scale) : v;
     return;
   }
@@ -1269,6 +1292,8 @@ function scan(layout, bytes, limit){
                      invalidPacked:0, unknownSign:0, unknownSignBytes:{},
                      floatNonzero:0, floatUnnormalised:0, floatExponents:{},
                      floatHeadBytes:{}, floatTailBytes:{}, floatFormat:"hfp",
+                     binaryNonzero:0, binaryOverPic:0, binaryMaxAbs:0,
+                     binaryHeadBytes:{}, binaryTailBytes:{}, binaryOrder:"big",
                      sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
   for(var r = 0; r < n; r++){
@@ -1345,6 +1370,40 @@ function findings(layout, res){
                   unset:st.unset.toLocaleString(), of:st.examined.toLocaleString()},
         records:st.examined});
     }
+    if((f.usage === "COMP" || f.usage === "COMP-5") && st.binaryNonzero && p){
+      var bHead = Object.keys(st.binaryHeadBytes).length,
+          bTail = Object.keys(st.binaryTailBytes).length,
+          bOrder = byteorderFromEntropy(bHead, bTail),
+          bWrong = bOrder && bOrder !== st.binaryOrder;
+      if(bWrong){
+        out.push({code:"BINARY_BYTE_ORDER", severity:"critical", field:f.name,
+          claim:"this binary field is being read "+st.binaryOrder+"-endian and the bytes "+
+                "say it is "+bOrder+"-endian; COMP-5 is defined as NATIVE order, and "+
+                "nothing in the file records which machine's",
+          evidence:{distinct_first_byte:String(bHead), distinct_last_byte:String(bTail),
+                    reading_in_force:st.binaryOrder},
+          records:st.examined,
+          impact:"re-read with --binary-byteorder "+bOrder+". The high-order end of a "+
+                 "real column varies little because magnitudes cluster; here it is the "+
+                 (bOrder === "little" ? "last" : "first")+" byte. Read the wrong way "+
+                 "round the values are still integers, just different ones"});
+      } else if(f.usage === "COMP" && st.binaryOverPic){
+        var lim = Math.pow(10, p.digits) - 1;
+        out.push({code:"BINARY_EXCEEDS_PIC", severity:"critical", field:f.name,
+          claim:"declared "+p.raw+" COMP, which a standard compiler truncates to "+
+                lim.toLocaleString()+", but this field holds larger values; it is COMP-5 "+
+                "or was compiled TRUNC(BIN), and the copybook does not say so",
+          evidence:{over_limit:st.binaryOverPic.toLocaleString(),
+                    share:pct(st.binaryOverPic, st.examined),
+                    largest_seen:st.binaryMaxAbs.toLocaleString(),
+                    pic_allows:lim.toLocaleString()},
+          records:st.examined,
+          impact:"one value above the limit is enough - a standard COMP field cannot "+
+                 "contain one. Anything downstream that believes the PICTURE will size "+
+                 "a column too small"});
+      }
+    }
+
     if(f.usage === "COMP-1" || f.usage === "COMP-2"){
       var ev = floatEvidence(st), spread = Object.keys(st.floatExponents).length,
           rd = floatReading(st), order = floatByteorder(st),

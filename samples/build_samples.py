@@ -330,12 +330,55 @@ def build_float_ieee():
                 "copybook, one byte-level difference")
 
 
+COMP5_CPY = """\
+000100* A copybook that says COMP. The compiler that wrote the data
+000200* said COMP-5, and nothing in the bytes records the difference.
+000300 01  BIN-REC.
+000400     05  BR-ID        PIC 9(06).
+000500     05  BR-COUNT     PIC S9(04) COMP.
+000600     05  BR-TOTAL     PIC S9(09) COMP.
+"""
+
+
+def _binary_records(little: bool, over_pic: bool):
+    rng = random.Random(41)
+    out = bytearray()
+    order = "little" if little else "big"
+    for i in range(120):
+        out += f"{800000 + i:06d}".encode("cp037")
+        # a standard COMP S9(04) truncates at 9,999; COMP-5 uses all 16 bits
+        count = rng.randrange(10000, 32000) if over_pic else rng.randrange(0, 9999)
+        out += count.to_bytes(2, order, signed=True)
+        out += rng.randrange(0, 900000).to_bytes(4, order, signed=True)
+    return bytes(out)
+
+
+def build_comp5_fullrange():
+    """The TRUNC hypothesis: values a standard COMP field could not hold."""
+    sample("comp5-fullrange",
+           "declared COMP but holding more than the PICTURE allows - the field "
+           "is COMP-5, or was compiled TRUNC(BIN)",
+           COMP5_CPY, _binary_records(little=False, over_pic=True),
+           expect=["BINARY_EXCEEDS_PIC"], record_bytes=12, records=120,
+           note="one value above 9,999 is proof; no sample size is needed")
+
+
+def build_comp5_little():
+    """The other half: right about the range, wrong about the byte order."""
+    sample("comp5-little",
+           "binary written little-endian, as a PC COBOL compiler writes COMP-5; "
+           "read big-endian the values are still integers, just different ones",
+           COMP5_CPY, _binary_records(little=True, over_pic=False),
+           expect=["BINARY_BYTE_ORDER"], record_bytes=12, records=120)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
                build_wrong_copybook, build_variable_blocked, build_blank,
                build_unset, build_range, build_ascii_zoned,
-               build_float_hfp, build_float_ieee, build_float_ieee_le):
+               build_float_hfp, build_float_ieee, build_float_ieee_le,
+               build_comp5_fullrange, build_comp5_little):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

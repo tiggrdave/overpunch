@@ -220,13 +220,13 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 329 passed, 11 skipped on a cold clone
-                   # 353 passed once scripts/fetch_carddemo.py has run
+make test          # 358 passed, 11 skipped on a cold clone
+                   # 382 passed once scripts/fetch_carddemo.py has run
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 55 tests with *"run
+first. Bare `pytest` on a fresh clone skips 61 tests with *"run
 build_samples.py to generate the corpus"*, which looks alarming and is not. The
 counts above were measured on a cold clone, not in the working tree - the two
 disagree, because the working tree has fixtures a clone does not.
@@ -519,7 +519,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-364 tests with the real-world fixtures fetched, 340 without, in five kinds:
+393 tests with the real-world fixtures fetched, 369 without, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|
@@ -586,10 +586,8 @@ FAILED test_width_underfill_does_not_nag_about_money_headroom
 - A `COMP-1`/`COMP-2` column whose values all sit inside one binade cannot be
   told apart — see below. The tool reports `FLOAT_FORMAT_UNDECIDABLE` rather
   than confirming its default, which is the honest answer and not a useful one.
-- `COMP-5`/`COMP-X` (native-endian binary integers) are still not modelled.
-  `COMP` is read big-endian, which GnuCOBOL confirms is right for `COMP` — but a
-  `COMP-5` field on a little-endian platform would be read byte-reversed, and
-  unlike the float case there is no detector for it yet.
+- A binary column that genuinely uses its full range at both ends gives no
+  byte-order signal. `BINARY_BYTE_ORDER` stays silent rather than guessing.
 
 ## Prove the method on a sample, then run it where the file lives
 
@@ -805,6 +803,40 @@ requires the format *and* the byte order to survive measurement.
 
 `samples/float-hex`, `float-ieee` and `float-ieee-le` are the same numbers in the
 same copybook, one byte-level difference apart.
+
+## `COMP-5` is not `COMP`, and the copybook is not always right about which
+
+Standard `COMP` **truncates to the PICTURE**: `PIC S9(4) COMP` holds at most
+9,999 even though its two bytes reach 32,767. `COMP-5` — and any `COMP` compiled
+`TRUNC(BIN)` — uses the full binary range, and is stored in the **native** byte
+order of whatever machine wrote it. Neither fact is recorded anywhere in the file.
+
+Worse, until 0.2.0 `COMP-5` and `COMP-X` were **not recognised at all** and fell
+through to `DISPLAY`, so `PIC S9(04) COMP-5` was sized 4 bytes where the truth is
+2. That does not mis-read one field — it shifts every field after it and changes
+the record length, so the copybook stops describing the file.
+
+Two independent tells, and they need each other:
+
+| | |
+|---|---|
+| **the PICTURE** | one value above `10**digits - 1` is **proof** the field is not standard `COMP`. No sample size, no plausibility — arithmetic. |
+| **the bytes** | the high-order end of a real column varies little, because magnitudes cluster. Read the wrong way round the values are still integers, just different ones, so nothing else notices. |
+
+The byte-order test runs **first**. Read little-endian bytes as big-endian and
+almost everything looks over-sized, which would fire the PICTURE rule for the
+wrong reason — a true statement about numbers that are not the field's values.
+
+```
+[CRITICAL] BINARY_EXCEEDS_PIC   BR-COUNT
+    declared S9(04) COMP, which a standard compiler truncates to 9,999, but this
+    field holds larger values; it is COMP-5 or was compiled TRUNC(BIN), and the
+    copybook does not say so
+    evidence: over_limit=120, share=100.0%, largest_seen=31,906, pic_allows=9,999
+```
+
+`--binary-byteorder big|little` reads it the other way. `samples/comp5-fullrange`
+and `samples/comp5-little` are one tell each.
 
 ## Checked against a real compiler, not only against itself
 
