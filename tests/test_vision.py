@@ -27,6 +27,15 @@ REAL_DAT = DEMO / "carddemo" / "DALYTRAN.PS"
 TRUE_LENGTH = 350
 DATA_BYTES = 105_000
 
+# CardDemo is fetched by scripts/fetch_carddemo.py, not by `make test`. Without
+# this guard the copybook test did not skip on a cold clone - it FAILED, with a
+# FileNotFoundError, on the exact command the README tells a reader to run. The
+# rest of the suite skips politely and the README says so; this one did not, and
+# said "1 failed" to everyone who ever cloned the repository.
+needs_carddemo = pytest.mark.skipif(
+    not REAL_CPY.exists(),
+    reason="run scripts/fetch_carddemo.py to fetch the real-world fixtures")
+
 
 def blocks(name):
     return json.loads((FIX / name).read_text())
@@ -47,6 +56,7 @@ def test_the_01_level_is_ordered_first_whatever_order_the_page_was_read_in():
     assert text.splitlines()[0].startswith("01 ")
 
 
+@needs_carddemo
 def test_a_good_read_reconstructs_the_real_copybook_exactly():
     text, _ = to_copybook(blocks("parse_good.json"))
     recovered, original = parse(text), parse_file(str(REAL_CPY))
@@ -58,6 +68,7 @@ def test_a_good_read_reconstructs_the_real_copybook_exactly():
     assert shape(recovered) == shape(original)
 
 
+@needs_carddemo
 @pytest.mark.skipif(not REAL_DAT.exists(),
                     reason="run scripts/fetch_carddemo.py")
 def test_the_recovered_copybook_finds_the_same_defects_in_the_real_data():

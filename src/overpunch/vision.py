@@ -106,7 +106,7 @@ _LATEX = re.compile(r"\\[a-zA-Z]+(?:\[[^\]]*\])?(?:\{([^{}]*)\})*")
 
 
 def _strip_markup(text: str) -> str:
-    """Remove the markup a document parser wraps around a cell.
+    r"""Remove the markup a document parser wraps around a cell.
 
     The model returns a monospace listing as a LaTeX table, and a heading inside
     it comes back as `\multicolumn{4}{c}{**...**}`. That parses harmlessly - the
