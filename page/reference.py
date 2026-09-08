@@ -29,6 +29,20 @@ PAIRS = [
     # every non-digit final byte as a sign, the other only real sign characters.
     ("samples/data/unset-numeric.cpy", "samples/data/unset-numeric.dat"),
     ("samples/data/range-condition.cpy", "samples/data/range-condition.dat"),
+    # ASCII code pages, which every case above leaves untested. The zoned one is
+    # the third sign convention - 0x70-0x79 - and the browser copy has to select
+    # it from the code page exactly as the Python does, or the two implementations
+    # agree on EBCDIC and quietly disagree on every PC-COBOL extract.
+    ("samples/data/ascii-separate-sign.cpy", "samples/data/ascii-separate-sign.dat",
+     "latin-1"),
+    ("samples/data/ascii-native-zoned.cpy", "samples/data/ascii-native-zoned.dat",
+     "latin-1"),
+    # ...and the SAME bytes declared as EBCDIC, which is the discrimination case:
+    # both implementations must refuse it with UNKNOWN_SIGN_BYTE rather than
+    # inventing 60 negatives. Without this the corpus contains no file that makes
+    # the new rule fire at all, and a rule no case reaches is not cross-checked.
+    ("samples/data/ascii-native-zoned.cpy", "samples/data/ascii-native-zoned.dat",
+     "cp037"),
 ]
 LIMIT = 300
 
@@ -39,18 +53,21 @@ def main() -> None:
     # a German case, so the comparison actually exercises a non-US code page.
     # Without one it agrees on everything and discriminates nothing.
     out["pages"] = {p: "".join(bytes([i]).decode(p) for i in range(256))
-                    for p in ("cp037", "cp273", "cp500", "cp1026")}
-    for cpy, dat in PAIRS:
+                    for p in ("cp037", "cp273", "cp500", "cp1026", "latin-1")}
+    for pair in PAIRS:
+        cpy, dat = pair[0], pair[1]
+        enc = pair[2] if len(pair) > 2 else "cp037"
         cp, dp = ROOT / cpy, ROOT / dat
         if not (cp.exists() and dp.exists()):
             continue
         layout = parse_file(str(cp))
-        stats = scan(str(dp), layout, limit=LIMIT)
+        stats = scan(str(dp), layout, encoding=enc, limit=LIMIT)
         raw = dp.read_bytes()[:LIMIT * layout.record_length()]
         out["cases"].append({
-            "name": cp.name,
+            "name": cp.name if enc == "cp037" else f"{cp.name} ({enc})",
             "copybook": cp.read_text(),
             "data": base64.b64encode(raw).decode(),
+            "encoding": enc,
             "record_len": layout.record_length(),
             # how many records were actually READ. Comparing findings alone let a
             # reader that returned nothing agree with one that read 30, because

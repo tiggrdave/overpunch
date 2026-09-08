@@ -79,6 +79,66 @@ def zone_sign(raw: bytes) -> tuple[int, str] | None:
     return None
 
 
+_ASCII_PAGE: dict[str, bool] = {}
+
+
+def is_ascii_page(encoding: str) -> bool:
+    """True when this code page writes digits as 0x30-0x39.
+
+    Asked of the codec rather than matched against a list of names, so latin-1,
+    cp1252, utf-8 and every alias of them answer correctly and no maintenance is
+    required when a new one turns up.
+    """
+    hit = _ASCII_PAGE.get(encoding)
+    if hit is None:
+        try:
+            hit = "0".encode(encoding) == b"\x30"
+        except LookupError:
+            hit = False
+        _ASCII_PAGE[encoding] = hit
+    return hit
+
+
+def ascii_zone_sign(raw: bytes) -> tuple[int, str] | None:
+    """Recover the sign from an ASCII-NATIVE zoned decimal's last byte.
+
+    Micro Focus, ACUCOBOL and the other PC COBOLs never translate from EBCDIC.
+    They write ASCII digits and fold the sign in by setting 0x40 in the zone, so
+    -123.45 ends in 0x75 ('u') - not the 0xD5 a mainframe writes, and not the
+    '}' that an EBCDIC file leaves behind once translated. Three conventions,
+    and only the code page says which is in play, which is why this is selected
+    by `is_ascii_page` rather than tried opportunistically: on EBCDIC data 0x75
+    is not a sign at all and guessing that it is would invent negatives.
+
+    Before this existed the byte fell through every branch: the sign was lost
+    AND the last digit dropped, so -123.45 read as 12.34 with nothing reported -
+    the exact failure this project exists to catch, inside this project.
+
+    The POSITIVE form is a plain digit byte and therefore indistinguishable from
+    an unsigned field. It is returned for the value, but `probe` counts only the
+    negative form as a sign byte; counting the positive one would report every
+    ASCII numeric column as carrying a sign.
+
+    Returns None for anything else - including the rarer ASCII conventions - so
+    an unrecognised final byte becomes an UNKNOWN_SIGN_BYTE finding rather than
+    a quiet guess.
+    """
+    if not raw:
+        return None
+    byte = raw[-1]
+    if 0x70 <= byte <= 0x79:
+        return -1, str(byte - 0x70)
+    if 0x30 <= byte <= 0x39:
+        return 1, str(byte - 0x30)
+    return None
+
+
+def encode_ascii_zoned(digits: str, negative: bool) -> bytes:
+    """Inverse of ascii_zone_sign, for building fixtures."""
+    return digits[:-1].encode("ascii") + bytes([(0x70 if negative else 0x30)
+                                                | int(digits[-1])])
+
+
 def encode_overpunch_bytes(digits: str, negative: bool, encoding: str = "cp037") -> bytes:
     """Build a signed DISPLAY field the way a mainframe writes one: by byte.
 
@@ -131,6 +191,10 @@ def decode_display(raw: bytes, pic: Picture, encoding: str = "cp037",
         # the byte's zone nibble is the same in every EBCDIC page; the character
         # it decodes to is not, so read the sign from the byte where possible
         zoned = zone_sign(raw)
+        if zoned is None and is_ascii_page(encoding):
+            # an ASCII-native zoned field: the sign is 0x40 in the zone, and no
+            # EBCDIC page can reach this branch, so the two cannot collide
+            zoned = ascii_zone_sign(raw)
         if zoned is not None:
             observed, last_digit = zoned
             text = text[:-1] + last_digit

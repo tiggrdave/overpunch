@@ -210,12 +210,12 @@ into a finding — and a system that does that once cannot be trusted anywhere e
 ```bash
 git clone https://github.com/tiggrdave/overpunch && cd overpunch
 make demo          # generates a synthetic extract and analyses it, under a minute
-make test          # 252 passed, 10 skipped
+make test          # 289 passed, 10 skipped
 make verify-js     # 0 disagreements between the Python and JavaScript implementations
 ```
 
 Run `make test`, not bare `pytest`: the target generates the reference corpus
-first. Bare `pytest` on a fresh clone skips 37 tests with *"run
+first. Bare `pytest` on a fresh clone skips 42 tests with *"run
 build_samples.py to generate the corpus"*, which looks alarming and is not.
 
 For the `explain` step, a free key from [build.nvidia.com](https://build.nvidia.com)
@@ -506,7 +506,7 @@ None of that source appears in this repository.
 
 ## What the tests actually check
 
-252 tests, in five kinds:
+289 tests, in five kinds:
 
 | kind | what it holds | example |
 |---|---|---|

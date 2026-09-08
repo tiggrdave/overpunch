@@ -116,5 +116,19 @@
     "note": "",
     "copybook": "range-condition.cpy",
     "data": "range-condition.dat"
+  },
+  {
+    "name": "ascii-native-zoned",
+    "why": "the ASCII-native sign convention: 0x70-0x79 is a negative digit, and it is not the EBCDIC overpunch nor a translation of it",
+    "encoding": "latin1",
+    "expect": [
+      "IMPLIED_DECIMAL",
+      "TRAILING_SIGN"
+    ],
+    "record_bytes": 18,
+    "records": 60,
+    "note": "read as EBCDIC-or-nothing this column loses every sign AND its last digit; read as cp037 it must raise UNKNOWN_SIGN_BYTE",
+    "copybook": "ascii-native-zoned.cpy",
+    "data": "ascii-native-zoned.dat"
   }
 ]

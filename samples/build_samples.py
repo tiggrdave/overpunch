@@ -20,7 +20,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from overpunch.decode import (encode_overpunch_bytes, encode_packed)  # noqa: E402
+from overpunch.decode import (encode_ascii_zoned, encode_overpunch_bytes,  # noqa: E402
+                              encode_packed)
 
 OUT = Path(__file__).parent / "data"
 SAMPLES: list[dict] = []
@@ -234,11 +235,46 @@ def build_unset():
            record_bytes=15, records=60)
 
 
+ASCII_ZONED_CPY = """\
+000100* PC COBOL: ASCII, with the sign folded into the last byte.
+000200 01  MF-REC.
+000300     05  MF-REF       PIC X(08).
+000400     05  MF-AMOUNT    PIC S9(07)V99.
+000500     05  MF-FLAG      PIC X(01).
+"""
+
+
+def build_ascii_zoned():
+    """Micro Focus and the other PC COBOLs, which never see EBCDIC at all.
+
+    They write ASCII digits and set 0x40 in the zone of the last byte, so -1 is
+    0x71 ('q'). It is neither the mainframe's 0xD1 nor the 'J' that survives a
+    translation, and until this sample existed the tool read the whole column
+    positive with the last digit dropped and said nothing.
+    """
+    rng = random.Random(21)
+    out = bytearray()
+    for i in range(60):
+        amount = Decimal(str(round(rng.uniform(-900, 4000), 2)))
+        scaled = int(amount.scaleb(2))
+        out += f"REF{i:05d}".encode("ascii")
+        out += encode_ascii_zoned(str(abs(scaled)).rjust(9, "0"), scaled < 0)
+        out += rng.choice("AB").encode("ascii")
+    sample("ascii-native-zoned",
+           "the ASCII-native sign convention: 0x70-0x79 is a negative digit, "
+           "and it is not the EBCDIC overpunch nor a translation of it",
+           ASCII_ZONED_CPY, bytes(out), encoding="latin1",
+           expect=["IMPLIED_DECIMAL", "TRAILING_SIGN"], record_bytes=18,
+           records=60,
+           note="read as EBCDIC-or-nothing this column loses every sign AND "
+                "its last digit; read as cp037 it must raise UNKNOWN_SIGN_BYTE")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for fn in (build_clean, build_ascii, build_packed, build_corrupt_packed,
                build_wrong_copybook, build_variable_blocked, build_blank,
-               build_unset, build_range):
+               build_unset, build_range, build_ascii_zoned):
         fn()
     manifest = Path(__file__).parent / "MANIFEST.json"
     manifest.write_text(json.dumps(SAMPLES, indent=2) + "\n")

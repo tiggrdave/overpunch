@@ -63,6 +63,18 @@ def width_underfill(fld: Field, st: FieldStats) -> bool:
                 and st.max_significant_digits <= fld.pic.int_digits - 1)
 
 
+def unknown_sign_byte(fld: Field, st: FieldStats) -> bool:
+    """A numeric DISPLAY field ending in a byte that is none of the known things.
+
+    Not a digit, not any sign convention the decoder implements, and not the
+    padding an unset field carries. The value cannot be read without knowing
+    which convention wrote it, and reading it as digits drops the last one - so
+    this fails closed rather than returning a plausible number.
+    """
+    return bool(fld.pic and fld.pic.is_numeric and fld.usage is Usage.DISPLAY
+                and st.unknown_sign_byte)
+
+
 def invalid_packed(fld: Field, st: FieldStats) -> bool:
     return bool(st.invalid_packed)
 

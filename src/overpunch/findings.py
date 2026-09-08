@@ -122,6 +122,21 @@ def _field_rules(fld: Field, st: FieldStats) -> list[Finding]:
                       "unset": f"{st.unset:,}", "of": f"{st.examined:,}"},
             records=st.examined))
 
+    if pred.unknown_sign_byte(fld, st):
+        out.append(Finding(
+            code="UNKNOWN_SIGN_BYTE", severity="critical", field=fld.name,
+            claim=("the final byte is neither a digit, nor any sign convention "
+                   "this decoder implements, nor the padding of an unset field; "
+                   "reading it as digits silently drops the last one"),
+            evidence={"records": f"{st.unknown_sign_byte:,}",
+                      "share": _pct(st.unknown_sign_byte, st.examined),
+                      "bytes": ", ".join(
+                          f"{b} x{n:,}"
+                          for b, n in st.unknown_sign_values.most_common(4))},
+            records=st.examined,
+            impact=("the code page or the sign convention is wrong; an "
+                    "ASCII-native zoned file read as EBCDIC lands here")))
+
     if pred.invalid_packed(fld, st):
         out.append(Finding(
             code="INVALID_PACKED", severity="critical", field=fld.name,

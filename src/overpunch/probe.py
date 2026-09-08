@@ -12,10 +12,10 @@ from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from decimal import Decimal
 
-from .decode import (DecodeError, decode_binary, decode_display,
-                     decode_display_naive, decode_hex_float,
-                     decode_packed, decode_text, split_overpunch,
-                     zone_sign)
+from .decode import (DecodeError, ascii_zone_sign, decode_binary,
+                     decode_display, decode_display_naive, decode_hex_float,
+                     decode_packed, decode_text, is_ascii_page,
+                     split_overpunch, zone_sign)
 from .layout import Field, Layout, Usage
 
 SEVERITY = ("info", "warn", "critical")
@@ -29,6 +29,11 @@ MAX_DISTINCT = 1000
 # final position is an UNPOPULATED field, not a negative number - and counting
 # it as a sign reported every empty one-digit indicator as a copybook error.
 _SIGN_CHARS = set("{ABCDEFGHI}JKLMNOPQR+-")
+
+# ...and these are how a mainframe says "no value", not a sign and not junk.
+# Trailing spaces in particular are ordinary in a numeric field, so the
+# unknown-byte rule below has to exempt them or it reports every one of them.
+_PADDING_CHARS = set("\x00 \xff")
 
 
 # Extracting digits with "".join(c for c in t if c.isdigit()) costs one Python
@@ -107,6 +112,8 @@ class FieldStats:
     overpunch_negative: int = 0
     overpunch_positive: int = 0
     ascii_signed: int = 0
+    unknown_sign_byte: int = 0
+    unknown_sign_values: Counter = dc_field(default_factory=Counter)
     max_significant_digits: int = 0
     distinct: Counter = dc_field(default_factory=Counter)
     undecodable: int = 0
@@ -389,6 +396,14 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
     # the sign is in the byte's zone nibble, which every EBCDIC page shares -
     # not in the character it decodes to, which they do not agree on
     zoned = zone_sign(raw)
+    # an ASCII-native zoned field (Micro Focus and friends) folds the sign in as
+    # 0x40 in the zone, so a negative ends in 0x70-0x79. Only the NEGATIVE form
+    # counts as a sign byte: the positive one is a plain digit, and counting it
+    # would report every ASCII numeric column as signed.
+    if zoned is None and is_ascii_page(encoding):
+        ascii_zoned = ascii_zone_sign(raw)
+        if ascii_zoned is not None and ascii_zoned[0] < 0:
+            zoned = ascii_zoned
     last = text[-1:] if text else ""
     if zoned is not None:
         st.nondigit_last_byte += 1
@@ -410,6 +425,15 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
                 st.overpunch_negative += 1
             else:
                 st.overpunch_positive += 1
+    elif last and not last.isdigit() and last not in _PADDING_CHARS:
+        # neither a digit, nor any sign convention this tool knows, nor the
+        # padding a mainframe leaves in an unset field. Reading it as digits
+        # drops the last one silently, which is how the ASCII-native convention
+        # went unnoticed here for the life of the project - so it is now a
+        # finding rather than a fall-through.
+        st.unknown_sign_byte += 1
+        if len(st.unknown_sign_values) < 32:
+            st.unknown_sign_values[f"0x{raw[-1]:02X}"] += 1
 
     if zoned is not None:
         digits = text[:-1] + zoned[1]
@@ -433,6 +457,9 @@ def _observe(st: FieldStats, fld: Field, raw: bytes, encoding: str) -> None:
         if not pic.signed:
             text_ = decode_text(raw, encoding).strip()
             z = zone_sign(raw)
+            if z is None and is_ascii_page(encoding):
+                a = ascii_zone_sign(raw)
+                z = a if (a is not None and a[0] < 0) else None
             if z is not None:
                 digits_, sign_ = text_[:-1] + z[1], z[0]
             else:

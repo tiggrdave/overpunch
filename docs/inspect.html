@@ -800,6 +800,10 @@ var POS = "{ABCDEFGHI", NEG = "}JKLMNOPQR";
 var SIGN_CHARS = {};
 "{ABCDEFGHI}JKLMNOPQR+-".split("").forEach(function(c){ SIGN_CHARS[c] = true; });
 
+/* ...and these are how a mainframe says "no value". Trailing spaces are
+   ordinary in a numeric field, so the unknown-byte rule has to exempt them. */
+var PADDING = {"\u0000": true, " ": true, "\u00ff": true};
+
 function setTable(t){ CP037 = t; }
 
 function text(bytes, off, len){
@@ -815,7 +819,14 @@ function splitSign(t){
   i = POS.indexOf(last); if(i>=0) return {d:t.slice(0,-1)+i, s:1};
   return {d:t, s:1};
 }
-function digitsOf(s){ return (s.replace(/[^0-9]/g,"") || "0"); }
+/* Two of these, deliberately. Arithmetic needs a "0" when a field holds no
+   digits at all; the STATISTICS must not, because a field of undecodable bytes
+   is unreadable, not zero. Sharing the fallback made every record of an
+   ASCII-native file read as EBCDIC count as all-zero, and the browser reported
+   NEVER_POPULATED on a column that is populated in all 60 records while the
+   Python said nothing. Found by adding that file to the cross-check corpus. */
+function digitsRaw(s){ return s.replace(/[^0-9]/g,""); }
+function digitsOf(s){ return digitsRaw(s) || "0"; }
 
 /* Low-values and spaces are how a mainframe says "no value". str.trim() does
    not remove 0x00, so a column left entirely unset looked populated. */
@@ -851,6 +862,24 @@ function zoneSign(byte){
   var zone = byte >> 4, digit = byte & 15;
   if((zone === 0x0C || zone === 0x0D) && digit <= 9)
     return {s: zone === 0x0D ? -1 : 1, d: String(digit)};
+  return null;
+}
+
+/* Micro Focus, ACUCOBOL and the other PC COBOLs never translate from EBCDIC:
+   they write ASCII digits and fold the sign in by setting 0x40 in the zone, so
+   -123.45 ends in 0x75 ('u'). That is a THIRD convention, not a variant of the
+   mainframe's 0xD5 nor of the '}' a translated file leaves behind, and only the
+   code page says which is in play - hence isAsciiPage rather than trying it
+   opportunistically, which on EBCDIC data would invent negatives.
+
+   The positive form is a plain digit and so indistinguishable from an unsigned
+   field: it is used for the VALUE, but only the negative form is counted as a
+   sign byte, or every ASCII numeric column would report as signed. */
+function isAsciiPage(){ return CP037 && CP037.charAt(0x30) === "0"; }
+
+function asciiZoneSign(byte){
+  if(byte >= 0x70 && byte <= 0x79) return {s: -1, d: String(byte - 0x70)};
+  if(byte >= 0x30 && byte <= 0x39) return {s:  1, d: String(byte - 0x30)};
   return null;
 }
 
@@ -925,7 +954,12 @@ function observe(st, f, bytes, off){
   }
   if(f.usage !== "DISPLAY") return;
 
-  var zoned = zoneSign(bytes[off + f.offset + len - 1]);
+  var lastByte = bytes[off + f.offset + len - 1];
+  var zoned = zoneSign(lastByte);
+  if(!zoned && isAsciiPage()){
+    var az = asciiZoneSign(lastByte);
+    if(az && az.s < 0) zoned = az;
+  }
   var last = t.length ? t.charAt(t.length-1) : "";
   if(zoned){
     st.nonDigitLast++;
@@ -934,9 +968,17 @@ function observe(st, f, bytes, off){
     st.nonDigitLast++;
     var sp = splitSign(t);
     if(sp.s < 0) st.negative++; else st.positive++;
+  } else if(last && !/[0-9]/.test(last) && !PADDING[last]){
+    /* neither a digit, nor any sign convention this decoder knows, nor the
+       padding of an unset field. Reading it as digits drops the last one
+       silently - which is how the ASCII-native convention went unnoticed. */
+    st.unknownSign++;
+    var hex = "0x" + (lastByte < 16 ? "0" : "") + lastByte.toString(16).toUpperCase();
+    if(Object.keys(st.unknownSignBytes).length < 32)
+      st.unknownSignBytes[hex] = (st.unknownSignBytes[hex] || 0) + 1;
   }
   var sp2 = zoned ? {d: t.slice(0,-1) + zoned.d, s: zoned.s} : splitSign(t);
-  var d = digitsOf(sp2.d);
+  var d = digitsRaw(sp2.d);
   if(!t.trim()) st.blank++;
   if(isUnset(t)) st.unset++;
   if(d && /^0+$/.test(d)) st.allZero++;
@@ -987,7 +1029,8 @@ function scan(layout, bytes, limit){
   layout.fields.forEach(function(f){
     stats[f.name] = {examined:0, blank:0, unset:0, allZero:0, nonDigitLast:0, negative:0,
                      positive:0, widest:0, distinct:{}, undecodable:0,
-                     invalidPacked:0, sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
+                     invalidPacked:0, unknownSign:0, unknownSignBytes:{},
+                     sumCorrect:0, sumAbs:0, sumNaive:0, sumForced:0};
   });
   for(var r = 0; r < n; r++){
     var off = offsets[r];
@@ -1063,6 +1106,19 @@ function findings(layout, res){
                   unset:st.unset.toLocaleString(), of:st.examined.toLocaleString()},
         records:st.examined});
     }
+    if(p && p.numeric && f.usage === "DISPLAY" && st.unknownSign){
+      var seen = Object.keys(st.unknownSignBytes).sort(function(a,b){
+        return st.unknownSignBytes[b] - st.unknownSignBytes[a]; }).slice(0,4);
+      out.push({code:"UNKNOWN_SIGN_BYTE", severity:"critical", field:f.name,
+        claim:"the final byte is neither a digit, nor any sign convention this decoder implements, nor the padding of an unset field; reading it as digits silently drops the last one",
+        evidence:{records:st.unknownSign.toLocaleString(),
+                  share:pct(st.unknownSign, st.examined),
+                  bytes:seen.map(function(b){
+                    return b + " x" + st.unknownSignBytes[b].toLocaleString(); }).join(", ")},
+        records:st.examined,
+        impact:"the code page or the sign convention is wrong; an ASCII-native zoned file read as EBCDIC lands here"});
+    }
+
     if(st.invalidPacked){
       out.push({code:"INVALID_PACKED", severity:"critical", field:f.name,
         claim:"declared COMP-3 but the nibbles are not valid packed decimal; the usage or the offset is wrong",
@@ -1139,6 +1195,7 @@ function readValue(f, bytes, off){
   if(isUnset(t)) return "";                    // low-values: no value, not zero
   if(!f.pic.numeric) return t.replace(/[\u0000\s]+$/, "");
   var zoned = zoneSign(bytes[at + len - 1]);
+  if(!zoned && isAsciiPage()) zoned = asciiZoneSign(bytes[at + len - 1]);
   var sp = zoned ? {d: t.slice(0, -1) + zoned.d, s: zoned.s} : splitSign(t);
   var digits = digitsOf(sp.d);
   // An unsigned whole number with no implied decimal is an identifier far more
